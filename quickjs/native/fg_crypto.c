@@ -393,8 +393,10 @@ static JSValue fg_x509_info(JSContext *ctx, JSValueConst this_val, int argc, JSV
                 snprintf(ip, sizeof(ip), "%u.%u.%u.%u", seq->buf.p[0], seq->buf.p[1], seq->buf.p[2], seq->buf.p[3]);
             } else {
                 for (j = 0; j + 1 < seq->buf.len && pos + 6 < sizeof(ip); j += 2) {
-                    pos += (size_t) snprintf(ip + pos, sizeof(ip) - pos, "%s%X", j ? ":" : "",
-                                             (seq->buf.p[j] << 8) | seq->buf.p[j + 1]);
+                    int n = snprintf(ip + pos, sizeof(ip) - pos, "%s%X", j ? ":" : "",
+                                     (seq->buf.p[j] << 8) | seq->buf.p[j + 1]);
+                    if (n < 0 || (size_t) n >= sizeof(ip) - pos) break;
+                    pos += (size_t) n;
                 }
                 ip[pos] = 0;
             }
@@ -1578,7 +1580,7 @@ static int fg_ed_expand(fg_ed *ed, const unsigned char *seed, mbedtls_mpi *a, un
 {
     unsigned char h[114];
     int n = fg_ed_hash(ed, h, seed, ed->enc_len, NULL, 0, NULL, 0);
-    int ret;
+    int ret = 0;
     if (n < 0) return -1;
     if (!ed->is448) {
         h[0] &= 248;

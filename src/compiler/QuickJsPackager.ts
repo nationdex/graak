@@ -5,6 +5,7 @@ import { dirname, extname, join } from "node:path";
 import { OPTIONAL_ACCELERATORS } from "../runtime/nativeShim";
 import { RuntimeError, TARGET_METADATA_MAP, TargetDevice } from "../structures";
 import type { ArchiveEntry } from "./Archive";
+import { writeFileAtomic } from "./AtomicWrite";
 import { NodeRuntime } from "./NodeRuntime";
 import { Prebuilt } from "./Prebuilt";
 import { hasPosixShell } from "./SpawnOutput";
@@ -353,7 +354,7 @@ export class QuickJsPackager {
 		const prebuilt = Prebuilt.host(repoRoot, buildTarget, sourceHash);
 		if (prebuilt) {
 			mkdirSync(cacheDir, { recursive: true });
-			writeFileSync(exe, prebuilt);
+			writeFileAtomic(exe, prebuilt);
 			chmodSync(exe, 0o755);
 			writeFileSync(marker, sourceHash);
 			onLog(`Using the prebuilt Graak native host for '${buildTarget}'`);

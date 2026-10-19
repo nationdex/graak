@@ -274,24 +274,38 @@ static int fg_safe_path(const char *path, size_t len)
 
 static int fg_write_file(const char *path, const unsigned char *data, size_t len, uint32_t mode)
 {
-    FILE *f = fopen(path, "wb");
+    FILE *f;
+#ifndef _WIN32
+    /* Created private (0600), then widened on the open file with fchmod: no path-based chmod, no world-readable window. */
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    f = fdopen(fd, "wb");
+    if (!f) {
+        close(fd);
+        return -1;
+    }
+#else
+    f = fopen(path, "wb");
     if (!f) {
         return -1;
     }
+#endif
     if (len && fwrite(data, 1, len, f) != len) {
         fclose(f);
         return -1;
     }
-    if (fclose(f) != 0) {
-        return -1;
-    }
 #ifndef _WIN32
     if (mode & 0111) {
-        chmod(path, (mode_t) (mode & 0777));
+        (void) fchmod(fileno(f), (mode_t) (mode & 0777));
     }
 #else
     (void) mode;
 #endif
+    if (fclose(f) != 0) {
+        return -1;
+    }
     return 0;
 }
 
@@ -918,8 +932,8 @@ static int fg_sea_load_index(char *main, size_t main_cap)
     main[mlen] = '\0';
     pos += mlen;
 
-    /* Each entry takes at least 19 index bytes (2 length, 16 fixed, 1 path byte): bound the count before allocating. */
-    if ((uint64_t) sea.nentries * 19 > index_len - pos) {
+    /* A block takes 21 index bytes and an entry at least 19 (2 length, 16 fixed, 1 path byte): bound both counts first. */
+    if (sea.nblocks > index_len / 21 || sea.nentries > index_len / 19) {
         return -1;
     }
     sea.blocks = (fg_sea_block *) calloc(sea.nblocks ? sea.nblocks : 1, sizeof(fg_sea_block));

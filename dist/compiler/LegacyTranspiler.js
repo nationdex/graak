@@ -232,7 +232,7 @@ class LegacyTranspiler {
         const renamed = new Map();
         const failures = [];
         let converted = 0;
-        const ESM_SYNTAX = /(^|[\n;])\s*(import\s*[\w{*'"]|export\s+(default|const|let|var|function|class|async|\{|\*)|export\s*\{)|import\.meta|\bawait\s+import\b/;
+        const ESM_SYNTAX = /(^|[\n;])[ \t]*(import\s*[\w{*'"]|export\s+(default|const|let|var|function|class|async|\{|\*)|export\s*\{)|import\.meta|\bawait\s+import\b/;
         const LOADERS = {
             ".ts": "ts",
             ".mts": "ts",
