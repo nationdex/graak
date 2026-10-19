@@ -304,7 +304,7 @@ export const MUSL_TOOLCHAINS: Partial<Record<TargetDevice, Toolchain>> = {
 };
 
 export function hasTool(tool: string): boolean {
-	return spawnSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf-8" }).status === 0;
+	return spawnSync("sh", ["-c", 'command -v "$1"', "sh", tool], { encoding: "utf-8" }).status === 0;
 }
 
 /* ---- build ---------------------------------------------------------------------------------- */

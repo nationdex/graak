@@ -12,8 +12,13 @@ tmp
 *.swp
 *.swo
 
-# Claude Code tooling state (e.g. agent worktrees)
+# AI tooling state (e.g. agent worktrees)
 .claude/
+.clinerules/
+.cursor/
+.windsurf/
+.opencode/
+.github/
 
 # Logs
 npm-debug.log*

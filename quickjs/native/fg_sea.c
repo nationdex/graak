@@ -918,6 +918,10 @@ static int fg_sea_load_index(char *main, size_t main_cap)
     main[mlen] = '\0';
     pos += mlen;
 
+    /* Each entry takes at least 19 index bytes (2 length, 16 fixed, 1 path byte): bound the count before allocating. */
+    if ((uint64_t) sea.nentries * 19 > index_len - pos) {
+        return -1;
+    }
     sea.blocks = (fg_sea_block *) calloc(sea.nblocks ? sea.nblocks : 1, sizeof(fg_sea_block));
     sea.entries = (fg_sea_entry *) calloc(sea.nentries ? sea.nentries : 1, sizeof(fg_sea_entry));
     if (!sea.blocks || !sea.entries) {

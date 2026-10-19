@@ -267,7 +267,7 @@ exports.MUSL_TOOLCHAINS = {
     },
 };
 function hasTool(tool) {
-    return (0, node_child_process_1.spawnSync)("sh", ["-c", `command -v ${tool}`], { encoding: "utf-8" }).status === 0;
+    return (0, node_child_process_1.spawnSync)("sh", ["-c", 'command -v "$1"', "sh", tool], { encoding: "utf-8" }).status === 0;
 }
 const HOST_EXE_NAME = "graak-c.exe";
 class V8AddonBuilder {

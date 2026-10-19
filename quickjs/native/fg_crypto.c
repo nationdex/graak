@@ -2065,7 +2065,7 @@ static JSValue fg_cipher_open(JSContext *ctx, JSValueConst this_val, int argc, J
     mbedtls_cipher_mode_t mode;
 
     if (!name) return JS_EXCEPTION;
-    for (i = 0; name[i] && i < sizeof(upper) - 1; i++) upper[i] = (char) ((name[i] >= 'a' && name[i] <= 'z') ? name[i] - 32 : name[i]);
+    for (i = 0; i < sizeof(upper) - 1 && name[i]; i++) upper[i] = (char) ((name[i] >= 'a' && name[i] <= 'z') ? name[i] - 32 : name[i]);
     upper[i] = 0;
     JS_FreeCString(ctx, name);
     key = JS_GetUint8Array(ctx, &klen, argv[2]);

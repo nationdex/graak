@@ -1689,7 +1689,7 @@ static JSValue fg_cipher(JSContext *ctx, JSValueConst this_val, int argc, JSValu
     if (!name) {
         return JS_EXCEPTION;
     }
-    for (i = 0; name[i] && i < sizeof(upper) - 1; i++) {
+    for (i = 0; i < sizeof(upper) - 1 && name[i]; i++) {
         upper[i] = (char) ((name[i] >= 'a' && name[i] <= 'z') ? name[i] - 32 : name[i]);
     }
     upper[i] = '\0';
