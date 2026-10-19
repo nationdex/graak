@@ -133,7 +133,29 @@ a real file is. Two narrow gaps remain, both because quickjs caches a loaded mod
 before the loader runs, and nothing outside quickjs.c can evict that cache: `cache: false` behaves like `cache: true`
 for ESM, and mocking a specifier some earlier import already resolved has no effect there (real Node's own loader can
 do both; this one can't without patching the vendored engine). Mocking before the first import of a specifier, the
-normal pattern, is unaffected by either.
+normal pattern, is unaffected by either. `fs.linkSync`/`fs.link`/`fs.promises.link` now create a real hard link (POSIX
+`link()`, or `CreateHardLinkW` on Windows, exposed as `fg_link` next to `fg_chmod`/`fg_ftruncate`/`fg_fsync` since the
+engine's own `os` module has no hardlink primitive) instead of silently copying the file's bytes into an independent
+one; this also fixes WASI's `path_link`, which called into `fs.linkSync` and previously copied the file as a result —
+the README's `wasi` row no longer lists that as a known gap. **`fg_link`'s C change landed without a prebuilt rebuild
+after it** (the sandbox that committed it had no musl-cross/mingw-w64 toolchain and no route to `www.sqlite.org`, which
+every target's build needs even for a glibc host): `quickjs/prebuilt/hosts/manifest.json`'s `sourceHash` still points at
+the source tree from before that commit, so `test/prebuilt.test.ts` fails and a packaged build falls back to compiling
+from source until someone with the toolchains runs `bun run prebuilts` and commits the regenerated hosts. Do that before
+any other C change lands, so the batch covers both. `generatePrime`/`generatePrimeSync` now honor `options.add`/`options.rem`
+too (and the `safe`-prime default of `rem = 3` Node applies when only `add` is given): mbedTLS's own prime search
+(`native.genPrime`) takes no congruence, so a candidate is drawn and nudged onto it in JavaScript, the same
+candidate-search-plus-`native.isPrime` shape `generateDsa` already uses above it in the same file; the plain and
+`safe`-only cases are unchanged and still go straight to `native.genPrime`. WASI's `fd_close` now closes the real host
+descriptor for a module's own inherited stdio (fd 0/1/2 of the process, used whenever `new WASI(...)` is given no
+`stdin`/`stdout`/`stderr` option), not only for a descriptor the WASI layer itself opened; the `owned` gate that used to
+skip inherited stdio stays for `fd_renumber`, an unrelated case with its own unresolved `EBADF` from real Node.
+**A sandbox with no musl-cross toolchain can't run the packaged-host side of any differential corpus at all**, not only
+one touching C: since the prebuilt manifest's `sourceHash` is stale (previous paragraph), the packager falls back to
+compiling `linux-x64` from source for every `bun run test` corpus, and that fails immediately with
+`x86_64-linux-musl-gcc is not installed` before it gets anywhere near the fixture being tested. A pure-JS runtime
+change (like the `fd_close` one above) can still be verified against real Node.js directly; treat the packaged-host
+side as blocked by the pending rebuild, not as a regression from the JS change, until the rebuild lands.
 
 What is genuinely still absent, not just narrowed: `node:sqlite` extension loading (`enableLoadExtension`/`loadExtension` —
 `backup()` and `function()` are both implemented: `backup()` is rate-limited `sqlite3_backup_step` stepping driven from
