@@ -1,6 +1,6 @@
 /*
  * SQLite for the native host: the public-domain amalgamation, compiled into the binary, and the handful of
- * functions JavaScript needs to drive it. `node:sqlite`, `bun:sqlite` and Deno KV are built on this in JavaScript
+ * functions JavaScript needs to drive it. `node:sqlite` and `bun:sqlite` are built on this in JavaScript
  * (quickjs/runtime/node-sqlite.js), so a program that stores its data in SQLite runs on every target, Windows XP
  * included, with nothing to install and no native addon to load.
  *
@@ -472,7 +472,7 @@ static JSValue fg_sqlite_version(JSContext *ctx, JSValueConst this_val, int argc
 
 /* node:sqlite's DatabaseSync.prototype.function() binds a scalar SQL function through
    sqlite3_create_function_v2(). SQLite calls xFunc synchronously on this same thread (SQLITE_THREADSAFE=0), so it
-   is a plain reentrant C-calls-into-JS trampoline, the same shape as fg_ffi.c's libffi callback: convert
+   is a plain reentrant C-calls-into-JS trampoline: convert
    sqlite3_value* args to JSValues, JS_Call the registered function, convert the JSValue result back with
    sqlite3_result_*.
 

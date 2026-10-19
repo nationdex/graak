@@ -2780,8 +2780,6 @@ extern const JSCFunctionListEntry graak_sqlite_funcs[];
 extern const size_t graak_sqlite_funcs_count;
 extern const JSCFunctionListEntry graak_crypto_funcs[];
 extern const size_t graak_crypto_funcs_count;
-extern const JSCFunctionListEntry graak_ffi_funcs[];
-extern const size_t graak_ffi_funcs_count;
 void fg_sea_install(JSContext *ctx, JSValueConst native);
 extern const JSCFunctionListEntry graak_pqc_funcs[];
 extern const size_t graak_pqc_funcs_count;
@@ -2807,9 +2805,8 @@ void graak_native_init(JSContext *ctx)
     JS_SetPropertyFunctionList(ctx, native, graak_napi_funcs, (int) graak_napi_funcs_count);
     /* WebAssembly (wasm3): instantiate, call exports, linear memory. node-wasm.js builds the WebAssembly API on it. */
     JS_SetPropertyFunctionList(ctx, native, graak_wasm_funcs, (int) graak_wasm_funcs_count);
-    /* SQLite (amalgamation compiled in) and libffi: node:sqlite, Deno KV and Deno.dlopen are built on these. */
+    /* SQLite (amalgamation compiled in): node:sqlite and bun:sqlite are built on it. */
     JS_SetPropertyFunctionList(ctx, native, graak_sqlite_funcs, (int) graak_sqlite_funcs_count);
-    JS_SetPropertyFunctionList(ctx, native, graak_ffi_funcs, (int) graak_ffi_funcs_count);
     JS_SetPropertyFunctionList(ctx, native, graak_crypto_funcs, (int) graak_crypto_funcs_count);
     /* ML-KEM, ML-DSA and SLH-DSA (fg_pqc.c). */
     JS_SetPropertyFunctionList(ctx, native, graak_pqc_funcs, (int) graak_pqc_funcs_count);

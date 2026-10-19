@@ -8,7 +8,7 @@
  * come from memory. Writes go to the disk (creating the real directories they need), and a payload file that is
  * written, removed or renamed in this process is from then on read from the disk. Code that needs a real file gets
  * one extracted: a native addon (with the shared libraries in the payload, which it may link against), an SQLite
- * database, a library opened through FFI, a program started as a child process.
+ * database, a program started as a child process.
  */
 
 const S_IFREG = 0o100000;
@@ -242,15 +242,14 @@ export function installSea({ os, std, native }) {
 			return dlopen(filename, exports);
 		};
 	}
-	for (const name of ["sqliteOpen", "ffiOpen"]) {
-		const open = native[name];
-		if (typeof open !== "function") continue;
-		native[name] = (file, ...rest) => {
+	const sqliteOpen = native.sqliteOpen;
+	if (typeof sqliteOpen === "function") {
+		native.sqliteOpen = (file, ...rest) => {
 			if (norm(file) !== null) {
 				if (lookup(file)) file = realFile(file);
 				else makeReal(parentOf(norm(file)));
 			}
-			return open(file, ...rest);
+			return sqliteOpen(file, ...rest);
 		};
 	}
 

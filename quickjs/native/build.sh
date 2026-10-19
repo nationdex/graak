@@ -48,7 +48,6 @@ MINIZ_VERSION="${MINIZ_VERSION:-3.0.2}"
 WASM3_VERSION="${WASM3_VERSION:-v0.5.0}"
 SQLITE_VERSION="${SQLITE_VERSION:-3460100}"
 SQLITE_YEAR="${SQLITE_YEAR:-2024}"
-LIBFFI_VERSION="${LIBFFI_VERSION:-3.4.6}"
 LIBUV_VERSION="${LIBUV_VERSION:-1.48.0}"
 BROTLI_VERSION="${BROTLI_VERSION:-v1.1.0}"
 ZSTD_VERSION="${ZSTD_VERSION:-v1.5.6}"
@@ -132,13 +131,6 @@ for n in z.namelist():
         open(n.split('/')[-1], 'wb').write(z.read(n))
 "))
 fi
-if [ ! -f libffi/configure ]; then
-	echo "[build] fetching libffi $LIBFFI_VERSION"
-	mkdir -p libffi
-	(cd libffi && curl -sL -o libffi.tar.gz "https://github.com/libffi/libffi/releases/download/v$LIBFFI_VERSION/libffi-$LIBFFI_VERSION.tar.gz" \
-		&& tar -xzf libffi.tar.gz --strip-components=1)
-fi
-
 if [ ! -f brotli/c/dec/decode.c ]; then
 	# Decoder (single-file executables carry their application Brotli-compressed, see fg_sea.c) and encoder (zlib.brotliCompress).
 	echo "[build] fetching Brotli $BROTLI_VERSION"
@@ -217,26 +209,6 @@ if [ ! -f "$MBEDTLS_BUILD/library/libmbedtls.a" ]; then
 	cmake --build "$MBEDTLS_BUILD" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)" >/dev/null
 fi
 
-# ---- libffi --------------------------------------------------------------------------------
-
-LIBFFI_BUILD="libffi/build-$TARGET"
-if [ ! -f "$LIBFFI_BUILD/.libs/libffi.a" ]; then
-	echo "[build] building libffi"
-	mkdir -p "$LIBFFI_BUILD"
-	FFI_HOST=""
-	case "$TARGET" in
-		win-xp-x86|win-x86) FFI_HOST="--host=i686-w64-mingw32" ;;
-		win-x64)            FFI_HOST="--host=x86_64-w64-mingw32" ;;
-		linux-x86|linux-x86-musl-dyn) FFI_HOST="--host=i686-linux-musl" ;;
-		linux-x64|linux-x64-musl-dyn) FFI_HOST="--host=x86_64-linux-musl" ;;
-		linux-x64-glibc)    FFI_HOST="--host=x86_64-linux-gnu" ;;
-	esac
-	(cd "$LIBFFI_BUILD" && CC="$CC" AR="$AR" CFLAGS="-O2 $XP_FLAGS" ../configure $FFI_HOST --disable-shared --enable-static \
-		--disable-docs --disable-multi-os-directory --disable-exec-static-tramp >/dev/null 2>&1 \
-		&& make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)" >/dev/null 2>&1) \
-		|| { echo "error: building libffi for $TARGET failed" >&2; exit 1; }
-fi
-
 # ---- CA bundle -----------------------------------------------------------------------------
 
 if [ ! -f "$SCRIPT_DIR/ca_bundle.c" ]; then
@@ -268,7 +240,7 @@ fi
 	-D_GNU_SOURCE -DMINIZ_NO_TIME -DMINIZ_NO_STDIO \
 	-DZSTD_DISABLE_ASM -DZSTD_LEGACY_SUPPORT=0 -DDEBUGLEVEL=0 -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_USE_URI=1 \
 	$NAPI_CFLAGS \
-	-I quickjs-ng -I mbedtls/include -I mbedtls/library -I miniz -I wasm3/source -I sqlite -I brotli/c/include -I zstd/lib -I zstd/lib/common -I mlkem-native/mlkem -I mldsa-native/mldsa -I slhdsa-c -I "$SCRIPT_DIR/pqc" -I libuv/include -I "$LIBFFI_BUILD/include" -I "$SCRIPT_DIR" -I "$SCRIPT_DIR/include" \
+	-I quickjs-ng -I mbedtls/include -I mbedtls/library -I miniz -I wasm3/source -I sqlite -I brotli/c/include -I zstd/lib -I zstd/lib/common -I mlkem-native/mlkem -I mldsa-native/mldsa -I slhdsa-c -I "$SCRIPT_DIR/pqc" -I libuv/include -I "$SCRIPT_DIR" -I "$SCRIPT_DIR/include" \
 	-o "$EXE" \
 	"$SCRIPT_DIR/fg_main.c" \
 	"$SCRIPT_DIR/fg_sea.c" \
@@ -278,7 +250,6 @@ fi
 	"$SCRIPT_DIR/fg_wasm.c" \
 	"$SCRIPT_DIR/fg_sqlite.c" \
 	"$SCRIPT_DIR/fg_crypto.c" \
-	"$SCRIPT_DIR/fg_ffi.c" \
 	"$SCRIPT_DIR/fg_proc.c" \
 	"$SCRIPT_DIR/fg_pqc.c" \
 	slhdsa-c/slh_dsa.c slhdsa-c/slh_sha2.c slhdsa-c/slh_shake.c slhdsa-c/sha2_256.c slhdsa-c/sha2_512.c slhdsa-c/sha3_api.c slhdsa-c/sha3_f1600.c \
@@ -296,7 +267,7 @@ fi
 	quickjs-ng/quickjs.c quickjs-ng/libregexp.c quickjs-ng/libunicode.c \
 	quickjs-ng/dtoa.c quickjs-ng/quickjs-libc.c \
 	quickjs-ng/gen/repl.c quickjs-ng/gen/standalone.c \
-	-L "$MBEDTLS_BUILD/library" -lmbedtls -lmbedx509 -lmbedcrypto "$LIBFFI_BUILD/.libs/libffi.a" \
+	-L "$MBEDTLS_BUILD/library" -lmbedtls -lmbedx509 -lmbedcrypto \
 	$WIN_LIBS -lm $([ "$WINDOWS" = "1" ] || echo "-ldl -lpthread") \
 	$NAPI_LDFLAGS \
 	$([ "$WINDOWS" = "1" ] || { [ "$STATIC" = "1" ] && echo "-latomic" || echo "-Wl,-Bstatic -latomic -Wl,-Bdynamic -static-libgcc"; }) \
