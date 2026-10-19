@@ -2,8 +2,8 @@
 
 Graak (github.com/ariel-aram/graak) packages a JavaScript or TypeScript program (server, site, CLI, bot) into one standalone
 executable for every device, legacy Windows and 32-bit systems included, with no Node.js on the device. It does that on its own
-engine (quickjs-ng plus a C host with mbedTLS, miniz, wasm3, SQLite and libffi, and a Node-shaped JavaScript layer), or on a
-Node.js runtime where one exists for the target. Bun and Deno projects are built with Graak as the sidekick. The ForgeScript
+engine (quickjs-ng plus a C host with mbedTLS, miniz, wasm3 and SQLite, and a Node-shaped JavaScript layer), or on a
+Node.js runtime where one exists for the target. Bun projects are built with Graak as the sidekick. The ForgeScript
 adapter under `src/forgescript` is optional; nothing else depends on it.
 
 This file is the shared rulebook. `CLAUDE.md` and `GEMINI.md` import it and add only what is specific to that tool.
@@ -16,13 +16,12 @@ OpenCode reads this file directly.
 2. **"Can't" is a gap to engineer around.** Every module, addon and API should run on every target. Do not declare a limit,
    stub a feature silently, or return a plausible fake. If something truly cannot work, say so in the code path (a clear error)
    and in the README's limits, and say what was tried.
-3. **Verify against the real thing.** Behaviour is checked by running the same program under real Node.js (and Deno, for the Deno
-   corpora) and under the packaged host, and requiring identical output. "It runs" is not the bar; "indistinguishable" is.
+3. **Verify against the real thing.** Behaviour is checked by running the same program under real Node.js and under the packaged host, and requiring identical output. "It runs" is not the bar; "indistinguishable" is.
 
 ## Layout
 
 - `src/compiler`: collect the project, convert it, package it (`BinaryPackager` picks the strategy; `QuickJsPackager` is the
-  Graak engine; `SeaPackager` and `PortablePackager` are the Node.js paths; `DenoBundler` and `DenoProject` handle Deno).
+  Graak engine; `SeaPackager` and `PortablePackager` are the Node.js paths).
 - `src/structures` (targets, errors), `src/runtime` (launchers and polyfills for Node.js builds), `src/integrations`
   (database driver knowledge), `src/forgescript` (optional adapter), `src/cli.ts`.
 - `quickjs/native`: the C host (`graak_native.c`, `napi.c`, `fg_*.c`, `build.sh`, `win-compat/` shims for old Windows).
@@ -42,10 +41,11 @@ node --test test/webRuntime.test.ts            # one suite while iterating
 bun run prebuilts                                 # rebuild the shipped hosts (about seven minutes, cross toolchains on PATH)
 bunx biome check --write                  # format and fix (src, test, tools, the JSON configs)
 bun run typecheck:test                    # tsc over test/*.ts
+docker compose -f test/docker/compose.yaml run --rm <alpine-x64|alpine-i386|win7|vista|xp> <command>   # emulated environments
 ```
 
 The repository is installed and driven with Bun (`bun.lock`). The scripts are plain `tsc` and `node` commands, so `npm run`,
-`pnpm run`, `yarn` and `deno task` run the same ones from a `package.json` install of any of them; only the lockfile is
+`pnpm run` and `yarn` run the same ones from a `package.json` install of any of them; only the lockfile is
 Bun's. `bun test` is Bun's own runner, not this suite: use `bun run test`.
 
 Biome uses tabs, line width 120. `dist/` is committed: run `bun run build` before committing.
@@ -138,7 +138,7 @@ normal pattern, is unaffected by either.
 What is genuinely still absent, not just narrowed: `node:sqlite` extension loading (`enableLoadExtension`/`loadExtension` —
 `backup()` and `function()` are both implemented: `backup()` is rate-limited `sqlite3_backup_step` stepping driven from
 JavaScript, with `progress`, `source`/`target` and Node's own validation and error shapes; `function()` binds a scalar SQL
-function through `sqlite3_create_function_v2()`, with a C trampoline the same shape as `fg_ffi.c`'s libffi callback —
+function through `sqlite3_create_function_v2()`, with a C trampoline into JavaScript —
 `sqlite3_value*` args converted to JSValues, `JS_Call`, the JSValue result converted back with `sqlite3_result_*` — and
 Node's own argument coercion, `deterministic`/`directOnly`/`varargs`/`useBigIntArguments` options and error propagation.
 Loading extensions needs neither: the bundled amalgamation is compiled with `SQLITE_OMIT_LOAD_EXTENSION`, and a static

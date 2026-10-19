@@ -3,10 +3,9 @@
  * WebSocket, MessageEvent and CloseEvent. Node.js 22 has a global WebSocket; the Graak engine and older Node.js do not,
  * and packages that speak WebSocket (a database or chat client, discord.js) read it from the global.
  *
- * SocketWebSocket is the framing endpoint the client is built on and that Deno.upgradeWebSocket serves with.
+ * SocketWebSocket is the framing endpoint the client is built on, and the server side of a WebSocket upgrade.
  *
- * Two places use this file: the runtime layer (node-compat.js installs the globals on the native host) and a bundled
- * Deno program (DenoBundler inlines the same source, minus the export line, and calls createWebSocket itself).
+ * node-compat.js loads this file and installs the globals on the native host.
  */
 
 function createWebSocket({ http, https, crypto, Buffer, CloseEvent: ExistingCloseEvent, MessageEvent: ExistingMessageEvent }) {

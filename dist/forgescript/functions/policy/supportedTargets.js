@@ -13,7 +13,7 @@ exports.default = new forgescript_1.NativeFunction({
     args: [
         {
             name: "packageManager",
-            description: "Package manager (bun, deno, pnpm, npm, yarn), detected from the project when empty",
+            description: "Package manager (bun, pnpm, npm, yarn), detected from the project when empty",
             rest: false,
             type: forgescript_1.ArgType.String,
         },

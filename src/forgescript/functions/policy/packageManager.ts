@@ -5,7 +5,7 @@ import { getRoot } from "../../util";
 export default new NativeFunction({
 	name: "$packageManager",
 	version: "1.0.0",
-	description: "Returns the package manager or runtime the project uses (bun, deno, pnpm, npm, yarn)",
+	description: "Returns the package manager or runtime the project uses (bun, pnpm, npm, yarn)",
 	unwrap: false,
 	output: ArgType.String,
 	execute(ctx) {

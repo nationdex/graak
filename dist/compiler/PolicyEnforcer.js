@@ -4,12 +4,10 @@ exports.PolicyEnforcer = exports.PACKAGE_MANAGERS = void 0;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const structures_1 = require("../structures");
-const DenoProject_1 = require("./DenoProject");
-exports.PACKAGE_MANAGERS = ["bun", "deno", "pnpm", "npm", "yarn"];
+exports.PACKAGE_MANAGERS = ["bun", "pnpm", "npm", "yarn"];
 const LOCKFILES = [
     ["bun.lock", "bun"],
     ["bun.lockb", "bun"],
-    ["deno.lock", "deno"],
     ["pnpm-lock.yaml", "pnpm"],
     ["yarn.lock", "yarn"],
     ["package-lock.json", "npm"],
@@ -55,10 +53,6 @@ class PolicyEnforcer {
             if ((0, node_fs_1.existsSync)((0, node_path_1.join)(rootDir, file)))
                 return pm;
         }
-        // A deno.json(c) with no lockfile of any kind is still a Deno project; it ranks below every
-        // lockfile because Node projects sometimes carry one for Deno Deploy.
-        if (DenoProject_1.DENO_CONFIG_FILES.some((name) => (0, node_fs_1.existsSync)((0, node_path_1.join)(rootDir, name))))
-            return "deno";
         const userAgent = process.env.npm_config_user_agent ?? "";
         for (const pm of exports.PACKAGE_MANAGERS) {
             if (userAgent.startsWith(`${pm}/`))
@@ -66,8 +60,6 @@ class PolicyEnforcer {
         }
         if (typeof process.versions.bun === "string")
             return "bun";
-        if (typeof process.versions.deno === "string")
-            return "deno";
         return "npm";
     }
     /**

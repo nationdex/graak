@@ -6,7 +6,7 @@ const WasmModuleInfo_1 = require("./WasmModuleInfo");
 /**
  * Auto-generates a plain ES module that loads a `.wasm` file and re-exports its functions as ordinary JavaScript
  * functions -- so a module written in Rust, Zig, C, Go (TinyGo) or anything else that targets `wasm32-unknown-unknown`
- * or `wasm32-wasip1` runs on Graak (wasm3 on the native host, or real `WebAssembly`/`node:wasi` on Node.js and Deno)
+ * or `wasm32-wasip1` runs on Graak (wasm3 on the native host, or real `WebAssembly`/`node:wasi` on Node.js)
  * with no hand-written glue: compile to `.wasm`, ship it, `import` the generated shim next to it.
  *
  * Two shapes are recognised:

@@ -1,8 +1,8 @@
 /*
  * `node:sqlite` and `bun:sqlite` on the host's built-in SQLite (quickjs/native/fg_sqlite.c).
  *
- * A program that keeps its data in SQLite -- through Node's own `node:sqlite`, Bun's `bun:sqlite`, or Deno KV, which
- * is built on it -- runs on every target with nothing to install, on the same database file format everywhere.
+ * A program that keeps its data in SQLite -- through Node's own `node:sqlite` or Bun's `bun:sqlite` -- runs on every
+ * target with nothing to install, on the same database file format everywhere.
  * `DatabaseSync` and `StatementSync` follow Node's documentation: rows are null-prototype objects, an integer outside
  * 53 bits is an error unless the statement reads bigints, `run()` reports `changes` and `lastInsertRowid`, and named
  * parameters bind with or without their prefix.

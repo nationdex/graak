@@ -1,5 +1,5 @@
 import { type TargetDevice } from "../structures";
-export declare const PACKAGE_MANAGERS: readonly ["bun", "deno", "pnpm", "npm", "yarn"];
+export declare const PACKAGE_MANAGERS: readonly ["bun", "pnpm", "npm", "yarn"];
 export type PackageManager = (typeof PACKAGE_MANAGERS)[number];
 export declare class PolicyEnforcer {
     static parsePackageManager(value: unknown): PackageManager | null;

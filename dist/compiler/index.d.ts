@@ -3,8 +3,6 @@ export * from "./Archive";
 export * from "./BinaryInspector";
 export * from "./BinaryPackager";
 export * from "./BunTranspiler";
-export * from "./DenoBundler";
-export * from "./DenoProject";
 export * from "./LegacyRuntimeAssets";
 export * from "./LegacyTranspiler";
 export * from "./NativeAddonCompiler";

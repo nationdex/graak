@@ -19,7 +19,7 @@ export default new NativeFunction({
 		},
 		{
 			name: "packageManager",
-			description: "Package manager (bun, deno, pnpm, npm, yarn), detected from the project when empty",
+			description: "Package manager (bun, pnpm, npm, yarn), detected from the project when empty",
 			rest: false,
 			type: ArgType.String,
 		},

@@ -102,10 +102,7 @@ export declare class BinaryPackager {
      * Builds a program into a Node.js Single Executable Application when the target
      * runtime supports it, otherwise into a portable bundle (launcher + archive + runtime).
      */
-    /**
-     * The project directory of an entry file: the closest one with a package.json, or with a deno.json(c) when a Deno
-     * project has no package.json (or keeps its config nearer to the entry).
-     */
+    /** The project directory of an entry file: the closest one with a package.json. */
     static findRoot(entry: string): string;
     static compile(options: BuildOptions): Promise<BuildResult>;
     /**

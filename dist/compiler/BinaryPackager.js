@@ -13,8 +13,6 @@ const AppTrimmer_1 = require("./AppTrimmer");
 const Archive_1 = require("./Archive");
 const BinaryInspector_1 = require("./BinaryInspector");
 const BunTranspiler_1 = require("./BunTranspiler");
-const DenoBundler_1 = require("./DenoBundler");
-const DenoProject_1 = require("./DenoProject");
 const LegacyRuntimeAssets_1 = require("./LegacyRuntimeAssets");
 const LegacyTranspiler_1 = require("./LegacyTranspiler");
 const NativeAddonCompiler_1 = require("./NativeAddonCompiler");
@@ -56,24 +54,8 @@ class BinaryPackager {
      * Builds a program into a Node.js Single Executable Application when the target
      * runtime supports it, otherwise into a portable bundle (launcher + archive + runtime).
      */
-    /**
-     * The project directory of an entry file: the closest one with a package.json, or with a deno.json(c) when a Deno
-     * project has no package.json (or keeps its config nearer to the entry).
-     */
+    /** The project directory of an entry file: the closest one with a package.json. */
     static findRoot(entry) {
-        let node = null;
-        try {
-            node = ProjectCollector_1.ProjectCollector.findProjectRoot(entry);
-        }
-        catch {
-            // A Deno project needs no package.json.
-        }
-        const config = DenoProject_1.DenoProject.findConfig((0, node_path_1.dirname)(entry));
-        const deno = config ? (0, node_path_1.dirname)(config) : null;
-        if (deno && (!node || deno.length >= node.length))
-            return deno;
-        if (node)
-            return node;
         return ProjectCollector_1.ProjectCollector.findProjectRoot(entry);
     }
     static async compile(options) {
@@ -145,34 +127,6 @@ class BinaryPackager {
             entrypoint = materialized.entrypoint;
             cleanupPnp = materialized.cleanup;
         }
-        // A Deno project has import maps, `jsr:`/`npm:`/`https:` specifiers and top-level await that neither engine
-        // resolves. Deno itself is asked for the module graph, which becomes one bundle plus a real node_modules
-        // tree -- see DenoBundler. Deno is needed here, at build time, and never on the device.
-        let cleanupDeno = null;
-        let denoUsesFfi = false;
-        if (pm === "deno") {
-            if (!DenoBundler_1.DenoBundler.isAvailable()) {
-                throw new structures_1.RuntimeError("This is a Deno project and 'deno' is not on PATH. Graak reads Deno's own module graph to build it, the way " +
-                    "Bun projects need 'bun' for TypeScript. Install Deno 2 from https://deno.com (build machine only), " +
-                    "or pass --pm npm to build the project as a Node.js one.");
-            }
-            const denoTarget = DenoProject_1.DenoProject.denoTarget(target);
-            log(denoTarget
-                ? `Deno can also build ${meta.name} itself ('deno compile --target ${denoTarget}'); Graak builds it here on ${QuickJsPackager_1.QuickJsPackager.supports(target) ? "its own engine" : "Node.js"}`
-                : `${meta.name} is a target 'deno compile' cannot build: Graak builds it`);
-            log(`Bundling ${options.entrypoint} with Deno's module graph`);
-            const bundled = await DenoBundler_1.DenoBundler.bundle({
-                entrypoint,
-                offline: options.offline,
-                excludePaths,
-                onLog: log,
-            });
-            entrypoint = bundled.entrypoint;
-            cleanupDeno = bundled.cleanup;
-            excludePaths.push(...bundled.bundled);
-            warnings.push(...bundled.warnings);
-            denoUsesFfi = bundled.usesFfi;
-        }
         try {
             log(`Collecting project files from ${root} (${pm})`);
             // The transpiled file (if any) lives inside root and is walked and bundled like any
@@ -216,9 +170,6 @@ class BinaryPackager {
                 // not an obstacle here: it loads the way it would under Node.js, provided it was built for
                 // this target's architecture and the host can dlopen at all.
                 const { required, optional } = (0, QuickJsPackager_1.classifyNativeAddons)(project.nativeAddons.map((a) => a.path));
-                // Deno.dlopen loads a shared library at run time, which a static host cannot do any more than an addon.
-                if (denoUsesFfi)
-                    required.set("Deno FFI (Deno.dlopen)", []);
                 // A dependency that ships only source is compiled below (once the libc for this build is settled),
                 // but it will need to dlopen just like a prebuilt one, so it counts here already.
                 for (const addon of project.sourceOnlyAddons)
@@ -514,7 +465,6 @@ class BinaryPackager {
         finally {
             cleanupTranspiled?.();
             cleanupPnp?.();
-            cleanupDeno?.();
         }
     }
     /**

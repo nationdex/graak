@@ -27,8 +27,6 @@ import { AppTrimmer } from "./AppTrimmer";
 import { Archive } from "./Archive";
 import { BinaryInspector } from "./BinaryInspector";
 import { BUN_TRANSPILABLE_EXTENSIONS, BunTranspiler } from "./BunTranspiler";
-import { DenoBundler } from "./DenoBundler";
-import { DenoProject } from "./DenoProject";
 import { LEGACY_ASSET_DIR, LegacyRuntimeAssets } from "./LegacyRuntimeAssets";
 import { LegacyTranspiler } from "./LegacyTranspiler";
 import { NativeAddonCompiler } from "./NativeAddonCompiler";
@@ -163,21 +161,8 @@ export class BinaryPackager {
 	 * Builds a program into a Node.js Single Executable Application when the target
 	 * runtime supports it, otherwise into a portable bundle (launcher + archive + runtime).
 	 */
-	/**
-	 * The project directory of an entry file: the closest one with a package.json, or with a deno.json(c) when a Deno
-	 * project has no package.json (or keeps its config nearer to the entry).
-	 */
+	/** The project directory of an entry file: the closest one with a package.json. */
 	public static findRoot(entry: string): string {
-		let node: string | null = null;
-		try {
-			node = ProjectCollector.findProjectRoot(entry);
-		} catch {
-			// A Deno project needs no package.json.
-		}
-		const config = DenoProject.findConfig(dirname(entry));
-		const deno = config ? dirname(config) : null;
-		if (deno && (!node || deno.length >= node.length)) return deno;
-		if (node) return node;
 		return ProjectCollector.findProjectRoot(entry);
 	}
 
@@ -257,39 +242,6 @@ export class BinaryPackager {
 			cleanupPnp = materialized.cleanup;
 		}
 
-		// A Deno project has import maps, `jsr:`/`npm:`/`https:` specifiers and top-level await that neither engine
-		// resolves. Deno itself is asked for the module graph, which becomes one bundle plus a real node_modules
-		// tree -- see DenoBundler. Deno is needed here, at build time, and never on the device.
-		let cleanupDeno: (() => void) | null = null;
-		let denoUsesFfi = false;
-		if (pm === "deno") {
-			if (!DenoBundler.isAvailable()) {
-				throw new RuntimeError(
-					"This is a Deno project and 'deno' is not on PATH. Graak reads Deno's own module graph to build it, the way " +
-						"Bun projects need 'bun' for TypeScript. Install Deno 2 from https://deno.com (build machine only), " +
-						"or pass --pm npm to build the project as a Node.js one."
-				);
-			}
-			const denoTarget = DenoProject.denoTarget(target);
-			log(
-				denoTarget
-					? `Deno can also build ${meta.name} itself ('deno compile --target ${denoTarget}'); Graak builds it here on ${QuickJsPackager.supports(target) ? "its own engine" : "Node.js"}`
-					: `${meta.name} is a target 'deno compile' cannot build: Graak builds it`
-			);
-			log(`Bundling ${options.entrypoint} with Deno's module graph`);
-			const bundled = await DenoBundler.bundle({
-				entrypoint,
-				offline: options.offline,
-				excludePaths,
-				onLog: log,
-			});
-			entrypoint = bundled.entrypoint;
-			cleanupDeno = bundled.cleanup;
-			excludePaths.push(...bundled.bundled);
-			warnings.push(...bundled.warnings);
-			denoUsesFfi = bundled.usesFfi;
-		}
-
 		try {
 			log(`Collecting project files from ${root} (${pm})`);
 			// The transpiled file (if any) lives inside root and is walked and bundled like any
@@ -340,8 +292,6 @@ export class BinaryPackager {
 				// not an obstacle here: it loads the way it would under Node.js, provided it was built for
 				// this target's architecture and the host can dlopen at all.
 				const { required, optional } = classifyNativeAddons(project.nativeAddons.map((a) => a.path));
-				// Deno.dlopen loads a shared library at run time, which a static host cannot do any more than an addon.
-				if (denoUsesFfi) required.set("Deno FFI (Deno.dlopen)", []);
 				// A dependency that ships only source is compiled below (once the libc for this build is settled),
 				// but it will need to dlopen just like a prebuilt one, so it counts here already.
 				for (const addon of project.sourceOnlyAddons) required.set(addon.name, [`${addon.archiveDir}/build/Release`]);
@@ -670,7 +620,6 @@ export class BinaryPackager {
 		} finally {
 			cleanupTranspiled?.();
 			cleanupPnp?.();
-			cleanupDeno?.();
 		}
 	}
 

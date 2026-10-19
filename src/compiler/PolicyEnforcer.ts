@@ -7,15 +7,13 @@ import {
 	parseTargetDevice,
 	type TargetDevice,
 } from "../structures";
-import { DENO_CONFIG_FILES } from "./DenoProject";
 
-export const PACKAGE_MANAGERS = ["bun", "deno", "pnpm", "npm", "yarn"] as const;
+export const PACKAGE_MANAGERS = ["bun", "pnpm", "npm", "yarn"] as const;
 export type PackageManager = (typeof PACKAGE_MANAGERS)[number];
 
 const LOCKFILES: ReadonlyArray<[string, PackageManager]> = [
 	["bun.lock", "bun"],
 	["bun.lockb", "bun"],
-	["deno.lock", "deno"],
 	["pnpm-lock.yaml", "pnpm"],
 	["yarn.lock", "yarn"],
 	["package-lock.json", "npm"],
@@ -61,17 +59,12 @@ export class PolicyEnforcer {
 			if (existsSync(join(rootDir, file))) return pm;
 		}
 
-		// A deno.json(c) with no lockfile of any kind is still a Deno project; it ranks below every
-		// lockfile because Node projects sometimes carry one for Deno Deploy.
-		if (DENO_CONFIG_FILES.some((name) => existsSync(join(rootDir, name)))) return "deno";
-
 		const userAgent = process.env.npm_config_user_agent ?? "";
 		for (const pm of PACKAGE_MANAGERS) {
 			if (userAgent.startsWith(`${pm}/`)) return pm;
 		}
 
 		if (typeof process.versions.bun === "string") return "bun";
-		if (typeof process.versions.deno === "string") return "deno";
 		return "npm";
 	}
 

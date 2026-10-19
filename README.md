@@ -42,7 +42,7 @@ anything that runs on Node.js) into an executable for a chosen target device. It
 
 - **The Graak engine** (default for legacy Windows, iSH, 32-bit Linux and 64-bit Linux): its own C host,
   `graak-c`, embedding [quickjs-ng](https://github.com/quickjs-ng/quickjs) and a Node.js-shaped standard library.
-  **No Node.js is shipped or needed on the device.** The host is about 4.5 MB (it carries TLS, WebAssembly, SQLite and libffi) and imports only what Windows XP already
+  **No Node.js is shipped or needed on the device.** The host is about 4.5 MB (it carries TLS, WebAssembly and SQLite) and imports only what Windows XP already
   has, so the result runs where Node.js itself cannot.
 - **Node.js**: a downloaded, SHA-256 verified Node.js runtime, packaged as a Single Executable Application or a
   portable folder. Used for the targets Node.js serves well, and available everywhere as `--engine node`.
@@ -51,11 +51,10 @@ Nothing in Graak is specific to any framework. Express, Fastify, Hono, `ws`, Rea
 ForgeScript bots all go through the same path; the [ForgeScript extension](#forgescript-extension) is an optional
 adapter that exposes a few of Graak's helpers as `$functions`.
 
-**Graak works beside Bun and Deno rather than against them.** Both have a built-in `compile` command that makes a
-binary for a modern 64-bit desktop, and both need their own runtime on the device's CPU and OS. Graak takes what they
-cannot: Windows XP, Vista and 7, 32-bit Windows and Linux, iSH, ARMv7 and FreeBSD, and a single file of about 5 MB with no Bun
-or Deno on the device. Bun and Deno stay the place a project is written and resolved; Graak reads what they resolved
-and builds it. See [Package managers](#package-managers).
+**Graak works beside Bun rather than against it.** Bun has a built-in `compile` command that makes a binary for a modern
+64-bit desktop, and it needs its own runtime on the device's CPU and OS. Graak takes what it cannot: Windows XP, Vista and 7,
+32-bit Windows and Linux, iSH, ARMv7 and FreeBSD, and a single file of about 5 MB with no Bun on the device. Bun stays the
+place a project is written and resolved; Graak reads what Bun resolved and builds it. See [Package managers](#package-managers).
 
 <h3 align="center" id="installation">Installation</h3><hr>
 
@@ -150,9 +149,8 @@ The Graak engine is the default wherever Node.js itself is the obstacle: Windows
 Node 5, XP has no Node.js at all, and 32-bit Linux's last build is an unofficial Node 12. Any target can still be moved
 onto Node.js with `--engine node`, `--node-binary`, `--strategy sea|portable` or a registered runtime.
 
-Every package manager and runtime (npm, pnpm, Yarn, Bun, Deno) may build every target. `deno compile` itself makes
-only five of them (`linux-modern-x64`, `linux-modern-arm64`, `win-modern-x64`, `darwin-x64`, `darwin-arm64`) and
-`bun build --compile` a similar set; every other target above is Graak's.
+Every package manager (npm, pnpm, Yarn, Bun) may build every target. `bun build --compile` makes only a similar,
+modern-desktop-only set; every other target above is Graak's.
 
 ---
 
@@ -283,7 +281,7 @@ host runs it **from inside itself**: modules and every `fs` read of the program'
 decompressed on demand, under a directory `<name>.graak` that exists only there. Nothing is unpacked. Files that must be
 real are extracted one at a time, beside the executable in `<name>.graak` (or in the temp directory when that folder is
 read-only): a native addon and the shared libraries the payload carries, a program started with `child_process`, an
-SQLite database or FFI library opened from the payload. The host is about 4.5 MB, so a small program or a static site is
+SQLite database opened from the payload. The host is about 4.5 MB, so a small program or a static site is
 a **single file of about 5 MB**; a discord.js bot with its dependencies is about 7.5 MB.
 
 The payload is read-only, like the files of an installed program. Writing to one of its paths writes a real file there
@@ -330,7 +328,7 @@ only Winsock 2 and CryptoAPI on Windows, both present since the 1990s:
   cannot produce a use-after-free. Certificates verify against a CA bundle compiled into the binary, not the OS store,
   which is what lets an old machine reach modern HTTPS hosts at all.
 - **Hashing, HMAC, secure randomness** (mbedTLS), **compression** (miniz), **WebAssembly** (wasm3), **SQLite** (the amalgamation),
-  **foreign function calls** (libffi), **UDP and unix-domain sockets**, **timers, filesystem and process**.
+  **UDP and unix-domain sockets**, **timers, filesystem and process**.
 - **Node-API** for native addons (plus the part of libuv's ABI that addons such as rocksdb-native call), and
   **single files that run in place** (a Brotli decoder reads the payload).
 
@@ -373,7 +371,7 @@ limited to a bounded number of files at once, and patched Windows 7 addons are c
 
 Embedded databases come in three kinds, and all three run:
 
-- **SQLite is built in.** `node:sqlite`, `bun:sqlite` and Deno KV work on every target with nothing to install, XP included
+- **SQLite is built in.** `node:sqlite` and `bun:sqlite` work on every target with nothing to install, XP included
   (see the table above). The amalgamation is compiled into the host, single-threaded.
 - **Databases that are Node-API addons** load on the dynamically linked host, like any addon. Verified by running the same
   program under Node.js and on the Graak engine and comparing what it prints: **LevelDB** (`classic-level`), **LMDB**
@@ -461,7 +459,7 @@ guessing. A package with genuinely no toolchain wired up for the target (see `TO
 A `.wasm` file the project ships gets a ready-made JavaScript binding next to it automatically, generated by reading
 the module's own export table (`src/compiler/WasmModuleInfo.ts`, `WasmShimGenerator.ts`): Rust, Zig, C, or Go (TinyGo)
 compiled to `wasm32-unknown-unknown` or `wasm32-wasip1` runs through `wasm3` (the host's own WebAssembly, see above) or
-real `WebAssembly`/`node:wasi` on Node.js and Deno, with no hand-written glue. `import { add } from "./lib.wasm.js"`
+real `WebAssembly`/`node:wasi` on Node.js, with no hand-written glue. `import { add } from "./lib.wasm.js"`
 next to a `lib.wasm` is enough; `graak wasm-shim <file.wasm> [-o out.js]` generates the same file standalone, to inspect
 or commit it. Two shapes are recognised:
 
@@ -481,8 +479,8 @@ loader by hand and supply the import object yourself. The generated shim always 
 converts every ES module to CommonJS before packaging and a synchronous `require()` cannot wait on top-level await.
 
 Verified with real `rustc` output: a `wasm32-unknown-unknown` reactor (`add`, a float function) round-trips through
-the generated shim under Node.js 24.21.0, 26.9.0, Deno, and the packaged Graak binary with no Node.js on the target,
-byte for byte. A `wasm32-wasip1` "hello world" command using Rust's standard library ran correctly under Node and Deno
+the generated shim under Node.js 24.21.0, 26.9.0 and the packaged Graak binary with no Node.js on the target,
+byte for byte. A `wasm32-wasip1` "hello world" command using Rust's standard library ran correctly under Node
 through the same shim, but the bundled `wasm3` refused to parse it (`LEB encoded value overflow`) -- a real ceiling of
 the vendored library on a std-linked WASI binary of that size and shape, not a bug in the generator, and not chased
 further in this session (`wasm3`'s own C parser, not JavaScript). A lean, `no_std`/`panic = "abort"` WASI binary, or a
@@ -507,81 +505,8 @@ plain `wasm32-unknown-unknown` reactor, are the reliable path until that is look
 
 ## Package managers
 
-npm, pnpm, Yarn, Bun and Deno all build every target. The manager is detected from `packageManager` in `package.json`,
-then the lockfile (`deno.lock` and `bun.lock` included), then a bare `deno.json`, then the invoking environment, and can
-be forced with `--pm`.
-
-**Deno projects.** A directory with a `deno.json`, `deno.jsonc` or `deno.lock` is a Deno project (`--pm deno` forces
-it), and it needs no `package.json`. Deno resolves imports in ways neither engine does (an import map, `jsr:`, `npm:`
-and `https:` specifiers, redirects, top-level `await`), so Graak asks Deno itself, the way it asks Yarn for a
-Plug'n'Play project and Bun for TypeScript: `deno info --json` reports the module graph Deno builds for the entry
-point, with every module's cached file and every npm package's directory, and Graak builds from that graph.
-
-- The program's own code, `jsr:` packages and `https:` modules become **one bundle** (esbuild, answering every import
-  from Deno's graph, so an import map, a version range or a redirect resolves as it does under Deno). Top-level
-  `await` survives because the bundle runs inside an async function, `import.meta.url`, `.dirname`, `.filename`,
-  `.main` and `.resolve()` are answered from where each file sits in the packaged application, and JSON imports and
-  dynamic `import()` work.
-- **`npm:` packages are not inlined.** They are laid out as a real `node_modules` tree beside the bundle, from Deno's
-  own cache, so native addons, `__dirname` reads and dynamic requires keep working, and the rest of the build (Windows 7
-  patching, V8 addon rebuilds, the ES module conversion) treats them like any other dependency.
-- **`deno` 2.x must be on PATH at build time only**, never on the device. The project is not modified: no `deno.lock`
-  or `node_modules` is written into it (`deno info` works on a scratch copy of the lock). `--offline` builds from
-  Deno's cache alone.
-- **The `Deno` namespace** (`quickjs/runtime/deno-shim.js`, inlined into the bundle, so it is the same on the Graak
-  engine and on Node.js) is written over the Node.js API: `Deno.readFile`/`readTextFile`/`writeFile`/`writeTextFile`,
-  `stat`, `readDir`, `mkdir`, `remove`, `rename`, `copyFile`, `symlink`, `open` and `FsFile`, `makeTempDir`/`File`,
-  `Deno.env`, `args`, `cwd`, `exit`, `Deno.serve` (with TLS, `onListen`, `signal` and `shutdown`),
-  `Deno.upgradeWebSocket` and a global `WebSocket` client, `Deno.listen`/`connect`/`listenTls`/`connectTls`,
-  `Deno.Command` and `ChildProcess`, `Deno.permissions` (everything is granted, as with `deno compile -A`), signals,
-  `Deno.errors` with Deno's classes and codes and the same message shape, and `Deno.build`/`version` matching the Deno used to build.
-  Verified by running the same programs under real Deno and under Graak and comparing what they print: file system,
-  environment, HTTP server and client, TCP, unix and UDP sockets, subprocesses, WebSocket, Deno KV, FFI and `Deno.test` corpora are identical, and a project with an
-  import map, `jsr:`, `npm:`, a JSON import, top-level `await` and a file read beside the program runs identically on
-  the Graak engine, on Node.js and as one Windows 7 `.exe` (under Wine).
-- **The parts of Deno that need more than a file or a socket are provided too.** `Deno.openKv` is Deno KV on SQLite: keys in
-  Deno's order (bytes, strings, bigints, numbers, booleans), values that round-trip Date, Map, Set, RegExp, typed arrays, BigInt,
-  errors and cycles, `list` with prefix, range, `reverse`, `limit`, `cursor` and `batchSize`, `atomic()` with `check`, `set`,
-  `delete`, `sum`, `min`, `max` and `enqueue`, `expireIn`, `KvU64`, versionstamps, `enqueue` with `delay`, `backoffSchedule` and
-  `keysIfUndelivered`, `listenQueue`, `watch`. It writes an ordinary SQLite file that `node:sqlite` opens (the default location is
-  `~/.graak/kv/`; a URL to a remote database is not reachable). `Deno.dlopen` is FFI on libffi: scalars, 64-bit integers as bigints,
-  buffers, pointers as opaque objects, `UnsafePointer`, `UnsafePointerView`, `UnsafeFnPointer`, callbacks (`UnsafeCallback`),
-  structs passed and returned by value and static data; a program that calls it gets the dynamically linked host, because a
-  static one cannot load a library. `Deno.cron` runs UTC schedules in cron syntax (steps, ranges, lists, month and weekday
-  names, Deno's object form) with `backoffSchedule` and `signal`. `Deno.watchFs`, `Deno.listen`/`connect` with
-  `transport: "unix"`, `Deno.listenDatagram` (UDP), and `Deno.test` and `Deno.bench` complete it: the tests and benchmarks a
-  program registers run after its main module and print what `deno test` and `deno bench` print (steps, `ignore`, `only`, the
-  ERRORS and FAILURES sections, the summary, exit code 1 on failure), except where a failure is located, since a packaged program
-  is one bundle.
-- **Not the same as Deno:** FFI runs on the Graak engine only (a Node.js build gets `Deno.errors.NotSupported`, since Node.js has no
-  foreign function interface); a `nonblocking` FFI symbol returns a promise but the call itself blocks the event loop while it
-  runs, and a callback invoked from another thread is not delivered; `unixpacket` sockets are not available; an expired KV entry is
-  hidden at once (Deno's local database hides it when its cleanup runs); `console.log` prints objects the way Node.js does
-  (single-quoted strings), not the way Deno does.
-- **Which targets Deno covers.** `graak info <target>` and `graak targets` say whether `deno compile` builds a target
-  itself (`$canPackageOnDeno` says it from a bot). For those five, either tool works; for the others Graak is the only
-  way to a Deno program on that device.
-- **Go shared libraries work through the same `Deno.dlopen` path as C, unmodified.** `go build -buildmode=c-shared`
-  produces an ordinary `.so`/`.dll`/`.dylib` plus a C header: cgo's `_cgo_`-prefixed runtime glue stays internal to
-  the library, and each `//export`ed function is a plain C ABI symbol (extern "C", no name mangling) — the same
-  shape `Deno.dlopen` already loads for a hand-written C library, so `fg_ffi.c`'s `dlopen`/`dlsym`/libffi call path
-  needed no change to support it (verified in `test/goFfi.test.ts` by building a real cgo library and calling it
-  under the packaged host, comparing against real Deno). Two things to build one: it needs `CGO_ENABLED=1` and a C
-  compiler on the *build* machine (never on the device the Graak binary ships to), and once a program calls into it
-  the Go runtime's own goroutine scheduler and GC threads start inside the process — leave the library loaded for
-  the process's life rather than closing it, since Go's runtime does not support being unloaded from a process
-  (`Deno.dlopen(...).close()` on a Go library is undefined). Memory ownership follows the same rule as any C FFI
-  call: a pointer a Go function returns (typically from `C.CString`, which uses C's `malloc`) must be freed with
-  whatever the library itself exports for that purpose (its own `C.free`-wrapping export), not with a function on
-  the caller's side, since freeing across two different allocators is undefined behaviour whenever they differ. No
-  legacy-Windows-specific `libgcc` caveat applies beyond the ones dynamic linking already has (see "Native addons"
-  above): `-buildmode=c-shared` output links against the platform's C runtime the same way any other dynamically
-  linked C library does.
-
-```sh
-graak compile main.ts --target win-legacy-x64                      # Deno program for Windows 7, no Deno on the device
-graak compile main.ts --target win-xp-x86 --engine native --strategy sea --output app.exe   # one file
-```
+npm, pnpm, Yarn and Bun all build every target. The manager is detected from `packageManager` in `package.json`, then
+the lockfile (`bun.lock` included), then the invoking environment, and can be forced with `--pm`.
 
 **Bun projects.** `bun build --compile` is the quick path for a modern 64-bit desktop, but its output needs Bun's runtime
 on the device. Graak builds every target for Bun projects, `linux-armv7` included. TypeScript and JSX entrypoints are
@@ -660,7 +585,6 @@ graak compile ./dist --target linux-modern-x64 --spa --port 8080                
 graak compile dist/index.js --target win-modern-x64        # sea, official Node.js
 graak compile dist/index.js --target win-vista-x86 --node-binary ./node-5.12.0/node.exe
 
-graak compile main.ts --target win-legacy-x64              # a Deno project (deno.json), for Windows 7
 graak targets [--pm <package manager>]
 graak info win-legacy-x64 [--db sqlite]     # engine, architecture, format, Node.js fallback, warnings
 graak extensions                            # ForgeScript extensions a project uses, with legacy compatibility
@@ -678,7 +602,7 @@ graak version
 | `-e, --engine auto\|native\|node` | Which engine runs the program. `auto` follows the target. `native` forces the Graak engine (and refuses a target without one); with it, `--strategy sea` is [one file](#one-file). `node` forces a Node.js build |
 | `-s, --strategy auto\|sea\|portable` | `auto` picks the target's default. Without `--engine`, `sea` or `portable` also moves a Graak-engine target onto Node.js |
 | `--static`, `--spa`, `--port <n>`, `--host <addr>`, `--index <file>` | [Static sites](#static-sites) |
-| `--pm <name>` | Package manager or runtime override (`bun`, `deno`, `pnpm`, `npm`, `yarn`) |
+| `--pm <name>` | Package manager or runtime override (`bun`, `pnpm`, `npm`, `yarn`) |
 | `--node-binary <path>` | Use this Node.js runtime instead of the target's default. Also moves a Graak-engine target onto Node.js |
 | `--node-version <ver>` | Official Node.js version to download (`22` or `22.11.0`) |
 | `--native-libc musl\|musl-dynamic\|glibc` | Libc of the Graak host. `musl` (static) is the default and runs on glibc and musl systems; it cannot load addons, so a program that needs one gets a dynamic host automatically |
@@ -741,7 +665,7 @@ const client = new ForgeClient({
 | --- | --- |
 | Build | `$compileBinary`, `$dbDriverCompat`, `$suggestDbDriver`, `$graakVersion` |
 | Binary | `$binarySize`, `$sha256Binary`, `$verifyBinaryHeader`, `$generateSeaConfig` |
-| Policy | `$isTargetSupported`, `$supportedTargets`, `$packageManager`, `$packagerType`, `$canPackageOnBun`, `$canPackageOnDeno` |
+| Policy | `$isTargetSupported`, `$supportedTargets`, `$packageManager`, `$packagerType`, `$canPackageOnBun` |
 | Target | `$listPlatforms`, `$targetName`, `$targetDescription`, `$targetPlatform`, `$targetBits`, `$binaryArchitecture`, `$binaryExtension`, `$binaryFormat`, `$is32BitTarget`, `$is64BitTarget`, `$is32BitOrLegacy`, `$isArmTarget`, `$isIsh`, `$isLegacyWindows` |
 
 `$packagerType` returns `native` for a target on the Graak engine and `sea` or `portable` for the Node.js targets.
@@ -770,13 +694,38 @@ bun install
 bun run typecheck && bun run typecheck:test && bun run build && bun run test && bun run check
 ```
 
-The repository is installed and driven with Bun (`bun.lock`). Its scripts are plain `tsc` and `node` commands, so npm, pnpm, Yarn
-and Deno (`deno task`) run the same ones; only the lockfile is Bun's. `bun test` is Bun's own runner, not this suite: use
+### Emulated environments (Docker Compose)
+
+`test/docker/compose.yaml` runs the shipped hosts in the environments they target, one service each:
+
+| Service | Environment | Host it runs |
+|---|---|---|
+| `alpine-x64` | Alpine (musl) on x86-64 | `linux-x64` (static musl, the modern 64-bit target) |
+| `alpine-i386` | Alpine (musl) on 32-bit x86, the userland iSH runs | `linux-x86` (static musl, the iSH target) |
+| `win7` | Wine 8 reporting Windows 7 (6.1.7601), 64-bit | `win-x64` |
+| `vista` | Wine 8 reporting Windows Vista (6.0.6002), 64-bit | `win-x64` |
+| `xp` | Wine 8 reporting Windows XP (5.1.2600), 32-bit | `win-xp-x86` |
+
+```sh
+docker compose -f test/docker/compose.yaml run --rm <service> <command>
+```
+
+`test/dockerMatrix.test.ts` runs the runtime self-test under each service and skips when Docker is unavailable. `test/dockerBinaries.test.ts` goes further: five programs (pure JavaScript and the built-in modules: hashes, zlib, paths, URLs, JSON, Buffer and timers; `node:sqlite`; the file system; an HTTP server and client on the loopback interface; and a WebAssembly module from another language, through the binding Graak generates) are each packaged with Graak for every environment, the resulting binary runs there, and its output must equal what the same program prints under Node.js. The Windows services keep their Wine prefixes in named volumes, so their runs take turns. The
+Alpine images are pinned by digest for each architecture, so the two variants never share a tag. Limits: iSH emulates
+x86 inside an iOS app, so `alpine-i386` is the same userland on a real 32-bit x86 kernel, not iSH's own syscall layer.
+The Windows services set the version Wine reports, not the APIs it offers: Wine implements the post-XP functions itself,
+so they cannot show a Windows XP load failure, and the XP import check stays with `objdump` in `test/win7Compat.test.ts`.
+
+macOS and Termux have no service and cannot have one in a Linux container. macOS is Apple's kernel and userland, and runs
+only on Apple hardware under Apple's licence; Termux is an Android app on the bionic C library. Their targets are
+cross-built and checked for imports, but nothing here runs them.
+
+The repository is installed and driven with Bun (`bun.lock`). Its scripts are plain `tsc` and `node` commands, so npm, pnpm and Yarn run the same ones; only the lockfile is Bun's. `bun test` is Bun's own runner, not this suite: use
 `bun run test`.
 
 `bun run test` compiles first and runs everything under `test/` with Node's test runner. Checks that need something extra
 skip themselves when it is missing: a built host (`GRAAK_C`), `qjs` (`GRAAK_QJS`), the musl.cc toolchains on `PATH`, NAN
-sources (`GRAAK_NAN_DIR`), `deno` (the Deno corpora and project compare against real Deno; the project needs the jsr and npm packages reachable or cached) and the `fg-wine` Docker image, which runs the Windows host (build it with `docker build -t fg-wine -f test/docker/fg-wine.Dockerfile test/docker`). `dist/` is committed, so run
+sources (`GRAAK_NAN_DIR`) and the `fg-wine` Docker image, which runs the Windows host (build it with `docker build -t fg-wine -f test/docker/fg-wine.Dockerfile test/docker`). `dist/` is committed, so run
 `bun run build` before committing.
 
 Layout: `src/compiler` (collect, convert, package), `src/structures` (targets, errors), `src/runtime` (launchers and

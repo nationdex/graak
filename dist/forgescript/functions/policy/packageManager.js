@@ -6,7 +6,7 @@ const util_1 = require("../../util");
 exports.default = new forgescript_1.NativeFunction({
     name: "$packageManager",
     version: "1.0.0",
-    description: "Returns the package manager or runtime the project uses (bun, deno, pnpm, npm, yarn)",
+    description: "Returns the package manager or runtime the project uses (bun, pnpm, npm, yarn)",
     unwrap: false,
     output: forgescript_1.ArgType.String,
     execute(ctx) {
