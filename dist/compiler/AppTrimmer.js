@@ -32,6 +32,20 @@ const LITERAL_ARG = /\s*(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
 const RESOLVE_CALL = /\brequire\s*\.\s*resolve\s*\(\s*(?:(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*[,)])?/g;
 /** `import x from "y"` / `export * from "y"` / `import "y"`, for a file the build could not convert. */
 const STATIC_IMPORT = /(?:^|[\n;}])[ \t]*(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])([^'"\n]+)\1|(?:^|[\n;])[ \t]*import\s*(['"])([^'"\n]+)\3/g;
+/** Index of the first non-space character at or after `i`. A plain scan: no regex backtracking over long runs of spaces. */
+function skipSpaces(code, i) {
+    let at = i;
+    while (at < code.length && /\s/.test(code[at]))
+        at++;
+    return at;
+}
+/** Whether a `{` follows `pos` after optional spaces and an optional `)`: the shape of a method declaration. */
+function opensMethodBody(code, pos) {
+    let at = skipSpaces(code, pos);
+    if (code[at] === ")")
+        at = skipSpaces(code, at + 1);
+    return code[at] === "{";
+}
 /** `require` handed around as a value, or a loader built from it: the names it loads cannot be read. */
 const OPAQUE_LOADER = /\bcreateRequire\b|\bmodule\s*\.\s*require\b|\brequire\s*\.\s*main\s*\.\s*require\b|[=,(:?]\s*require\s*[,;)}\n]|\bprocess\s*\.\s*dlopen\b/;
 /** Code that reads its own package's files by path. */
@@ -443,7 +457,6 @@ class AppTrimmer {
             if (!packageRootOf(path))
                 reach(path);
         const literal = LITERAL_ARG;
-        const methodBody = /\s*(?:\)\s*)?\{/y;
         for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
             const code = text(file);
             const fromDir = node_path_1.posix.dirname(file) === "." ? "" : node_path_1.posix.dirname(file);
@@ -454,9 +467,8 @@ class AppTrimmer {
                 literal.lastIndex = after;
                 const arg = literal.exec(code);
                 if (!arg) {
-                    methodBody.lastIndex = after;
                     // `import(` also declares a method named import; a require() of anything but a literal is certain.
-                    if (match[2] === "require" || !methodBody.test(code))
+                    if (match[2] === "require" || !opensMethodBody(code, after))
                         dynamic = true;
                     continue;
                 }
