@@ -1,0 +1,92 @@
+# Emulated environments for Graak's native hosts. Run one with
+#   docker compose -f test/docker/compose.yaml run --rm <service> <command>
+# or let test/dockerMatrix.test.ts run every service against the shipped hosts.
+#
+# What each service really is:
+#   alpine-x64    Alpine (musl) on x86-64. The static linux-modern-x64 host runs natively here.
+#   alpine-i386   Alpine (musl) on 32-bit x86: the userland iSH runs. iSH itself emulates x86 inside an iOS
+#                 app; this is the same userland on a real 32-bit x86 kernel, not iSH's own syscall layer.
+#   win7          Wine 8 reporting Windows 7 (6.1.7601), 64-bit prefix.
+#   vista         Wine 8 reporting Windows Vista (6.0.6002), 64-bit prefix.
+#   xp            Wine 8 reporting Windows XP (5.1.2600), 32-bit prefix.
+#
+# The Windows services set the version Wine reports, not the APIs it offers: Wine implements the post-XP functions
+# itself (WaitOnAddress and friends), so they cannot show a Windows XP load failure. The XP import check stays with
+# objdump in test/win7Compat.test.ts, which is the authority there.
+#
+# Not provided: macOS and Termux. Neither can run in a Linux container: macOS is Apple's kernel and userland and runs
+# only on Apple hardware under Apple's licence, and Termux is an Android app on the bionic C library. Their targets are
+# cross-built and checked for imports, but nothing here runs them.
+
+x-wine: &wine
+  build:
+    context: .
+    dockerfile: fg-wine.Dockerfile
+  image: fg-wine
+  platform: linux/amd64
+  environment:
+    WINEDEBUG: "-all"
+  volumes:
+    - ../..:/graak:ro
+    - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+  working_dir: /w
+
+services:
+  alpine-x64:
+    image: alpine@sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e
+    platform: linux/amd64
+    volumes:
+      - ../..:/graak:ro
+      - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+    working_dir: /w
+    command: ["sh", "-c", "uname -m && ls /lib/ld-musl-* && od -An -tx1 -N5 /bin/busybox"]
+
+  alpine-i386:
+    image: alpine@sha256:4ec3ead63e75e791660b5abc4dc3bd85ebb6fc24a10d649ba05991bf34b5e80e
+    platform: linux/386
+    volumes:
+      - ../..:/graak:ro
+      - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+    working_dir: /w
+    command: ["sh", "-c", "ls /lib/ld-musl-* && od -An -tx1 -N5 /bin/busybox"]
+
+  win7:
+    <<: *wine
+    environment:
+      WINEDEBUG: "-all"
+      WINEARCH: win64
+      WINEPREFIX: /wine-win7
+    volumes:
+      - ../..:/graak:ro
+      - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+      - win7-prefix:/wine-win7
+    command: ["sh", "-c", "wineboot -u >/dev/null 2>&1; wineserver -w; wine reg add 'HKCU\\Software\\Wine' /v Version /d win7 /f >/dev/null 2>&1; wineserver -w; wine cmd /c ver 2>/dev/null | tr -d '\\r'"]
+
+  vista:
+    <<: *wine
+    environment:
+      WINEDEBUG: "-all"
+      WINEARCH: win64
+      WINEPREFIX: /wine-vista
+    volumes:
+      - ../..:/graak:ro
+      - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+      - vista-prefix:/wine-vista
+    command: ["sh", "-c", "wineboot -u >/dev/null 2>&1; wineserver -w; wine reg add 'HKCU\\Software\\Wine' /v Version /d vista /f >/dev/null 2>&1; wineserver -w; wine cmd /c ver 2>/dev/null | tr -d '\\r'"]
+
+  xp:
+    <<: *wine
+    environment:
+      WINEDEBUG: "-all"
+      WINEARCH: win32
+      WINEPREFIX: /wine-xp
+    volumes:
+      - ../..:/graak:ro
+      - ${GRAAK_MATRIX_DIR:-./.matrix}:/w
+      - xp-prefix:/wine-xp
+    command: ["sh", "-c", "wineboot -u >/dev/null 2>&1; wineserver -w; wine reg add 'HKCU\\Software\\Wine' /v Version /d winxp /f >/dev/null 2>&1; wineserver -w; wine cmd /c ver 2>/dev/null | tr -d '\\r'"]
+
+volumes:
+  win7-prefix:
+  vista-prefix:
+  xp-prefix:

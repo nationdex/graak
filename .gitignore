@@ -37,3 +37,6 @@ graak-out/
 *.graak/
 .graak-cache/
 graak-c-build/
+
+# Scratch directory the Docker matrix test mounts (test/docker/compose.yaml)
+.matrix
