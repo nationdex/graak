@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RuntimeError, TargetDevice } from "../structures";
+import { writeFileAtomic } from "./AtomicWrite";
 import { NodeRuntime } from "./NodeRuntime";
 
 /**
@@ -180,7 +181,7 @@ export class QuickJsRuntime {
 		}
 
 		mkdirSync(dir, { recursive: true });
-		writeFileSync(file, buffer);
+		writeFileAtomic(file, buffer);
 		if (!entry.asset.endsWith(".exe")) chmodSync(file, 0o755);
 		return file;
 	}

@@ -11,6 +11,7 @@ const nativeShim_1 = require("../runtime/nativeShim");
 const structures_1 = require("../structures");
 const AppTrimmer_1 = require("./AppTrimmer");
 const Archive_1 = require("./Archive");
+const AtomicWrite_1 = require("./AtomicWrite");
 const BinaryInspector_1 = require("./BinaryInspector");
 const BunTranspiler_1 = require("./BunTranspiler");
 const LegacyRuntimeAssets_1 = require("./LegacyRuntimeAssets");
@@ -581,10 +582,8 @@ class BinaryPackager {
                 continue;
             const digest = (0, node_crypto_1.createHash)("sha256").update(patch.buffer).digest("hex").slice(0, 24);
             const patched = (0, node_path_1.join)(cache, `${digest}-${(0, node_path_1.basename)(entry.path)}`);
-            if (!(0, node_fs_1.existsSync)(patched)) {
-                (0, node_fs_1.mkdirSync)(cache, { recursive: true });
-                (0, node_fs_1.writeFileSync)(patched, patch.buffer);
-            }
+            (0, node_fs_1.mkdirSync)(cache, { recursive: true });
+            (0, AtomicWrite_1.writeFileAtomic)(patched, patch.buffer);
             entry.source = patched;
             patchedDirs.add(node_path_1.posix.dirname(entry.path));
             log(`Windows 7: ${entry.path}: ${patch.changes.join(", ")}`);

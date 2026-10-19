@@ -90,7 +90,11 @@ class BinaryInspector {
             const offset = is64 ? Number(le ? buf.readBigUInt64LE(at + 8) : buf.readBigUInt64BE(at + 8)) : u32(at + 4);
             const size = is64 ? Number(le ? buf.readBigUInt64LE(at + 32) : buf.readBigUInt64BE(at + 32)) : u32(at + 16);
             if (offset + size <= buf.length) {
-                info.interpreter = buf.toString("latin1", offset, offset + size).replace(/\0+$/, "");
+                // Trailing NULs trimmed by a loop: a /\0+$/ regex is quadratic on a long run of NULs.
+                let end = offset + size;
+                while (end > offset && buf[end - 1] === 0)
+                    end--;
+                info.interpreter = buf.toString("latin1", offset, end);
             }
             break;
         }

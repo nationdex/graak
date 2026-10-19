@@ -172,8 +172,14 @@ class NativeAddonCompiler {
         const hash = (0, node_crypto_1.createHash)("sha256");
         hash.update(target);
         for (const source of settings.sources) {
-            if ((0, node_fs_1.existsSync)(source) && (0, node_fs_1.statSync)(source).isFile())
-                hash.update(source).update((0, node_fs_1.readFileSync)(source));
+            let content;
+            try {
+                content = (0, node_fs_1.readFileSync)(source);
+            }
+            catch {
+                continue; // missing, or not a regular file
+            }
+            hash.update(source).update(content);
         }
         hash.update(JSON.stringify([settings.defines, settings.cflags, settings.cflagsCc, settings.libraries, settings.dependencies]));
         return hash.digest("hex").slice(0, 24);

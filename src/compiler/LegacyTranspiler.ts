@@ -275,7 +275,7 @@ export class LegacyTranspiler {
 		let converted = 0;
 
 		const ESM_SYNTAX =
-			/(^|[\n;])\s*(import\s*[\w{*'"]|export\s+(default|const|let|var|function|class|async|\{|\*)|export\s*\{)|import\.meta|\bawait\s+import\b/;
+			/(^|[\n;])[ \t]*(import\s*[\w{*'"]|export\s+(default|const|let|var|function|class|async|\{|\*)|export\s*\{)|import\.meta|\bawait\s+import\b/;
 		const LOADERS: Record<string, "ts" | "tsx" | "jsx"> = {
 			".ts": "ts",
 			".mts": "ts",

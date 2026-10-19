@@ -12,7 +12,7 @@
  */
 const { spawnSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
-const { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } = require("node:fs");
 const { join, resolve } = require("node:path");
 const { gzipSync } = require("node:zlib");
 const { NodeRuntime, QuickJsPackager, Win7Compat } = require("../dist/index.js");
@@ -46,7 +46,10 @@ for (const target of targets) {
 	};
 	console.log(`[prebuilt] ${target}: ${bytes.length} -> ${gz.length} bytes`);
 }
-writeFileSync(manifestPath, `${JSON.stringify({ sourceHash, hosts }, null, "\t")}\n`);
+// Written beside the manifest and renamed over it, so a reader never sees half a file.
+const manifestTmp = `${manifestPath}.${process.pid}.tmp`;
+writeFileSync(manifestTmp, `${JSON.stringify({ sourceHash, hosts }, null, "\t")}\n`);
+renameSync(manifestTmp, manifestPath);
 
 if (!wanted.length) {
 	const shimHash = Win7Compat.shimSourceHash(root);

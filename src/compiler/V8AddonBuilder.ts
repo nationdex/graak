@@ -8,7 +8,6 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -174,7 +173,9 @@ function evalCondition(expr: string, vars: Vars): boolean {
 		const actual = vars[m[1]] ?? "";
 		return m[2] === "==" ? actual === m[3] : actual !== m[3];
 	};
-	return expr.split(/\s+or\s+/).some((orPart) => orPart.split(/\s+and\s+/).every(clause));
+	// Whitespace is collapsed first, so the operators split on plain spaces: no overlapping \s runs to backtrack through.
+	const flat = expr.replace(/\s+/g, " ");
+	return flat.split(" or ").some((orPart) => orPart.split(" and ").every(clause));
 }
 
 const SETTING_KEYS = [
@@ -328,6 +329,8 @@ export interface V8BuildResult {
 }
 
 const HOST_EXE_NAME = "graak-c.exe";
+/** A GitHub owner, repository or ref as it appears in a URL path. Starts with a word character, so never "." or "..". */
+const SAFE_SEGMENT = /^\w[\w.+-]*$/;
 
 export class V8AddonBuilder {
 	/** Whether V8 addons can be built for this target at all (needs the target's cross toolchain). */
@@ -383,12 +386,16 @@ export class V8AddonBuilder {
 			/^([\w.-]+)\/([\w.-]+)$/.exec(repo ?? "");
 		if (!match || !manifest.version) return null;
 		const [, owner, name] = match;
+		// Each becomes a URL path segment: no leading dot, so "." and ".." cannot climb out of the repository path.
+		if (!owner || !name || !SAFE_SEGMENT.test(owner) || !SAFE_SEGMENT.test(name)) return null;
 		const cache = join(NodeRuntime.cacheDir(), "v8-sources", `${owner}-${name}-${manifest.version}`);
 		const found = (dir: string) => (existsSync(join(dir, "binding.gyp")) ? dir : null);
 		if (existsSync(cache)) return found(join(cache, directory));
 
 		const base = (options.mirror ?? "https://codeload.github.com").replace(/\/$/, "");
-		const refs = [manifest.gitHead, `v${manifest.version}`, manifest.version].filter((r): r is string => Boolean(r));
+		const refs = [manifest.gitHead, `v${manifest.version}`, manifest.version].filter(
+			(r): r is string => typeof r === "string" && SAFE_SEGMENT.test(r)
+		);
 		for (const ref of refs) {
 			let response: Response;
 			try {
@@ -620,7 +627,7 @@ export class V8AddonBuilder {
 		let out = value;
 		// <!(node -e "require('nan')") : the include directory of a package, resolved from the project.
 		out = out.replace(
-			/<!@?\(\s*node\s+-(?:e|p)\s+["']?\s*require\(\s*\\?['"]([\w@/.-]+)\\?['"]\s*\)(\.include)?\s*["']?\s*\)/g,
+			/<!@?\(\s*node\s+-(?:e|p)\s+(?:["']\s*)?require\(\s*\\?['"]([\w@/.-]+)\\?['"]\s*\)(\.include)?\s*(?:["']\s*)?\)/g,
 			(_m, pkgName: string) => {
 				const found = V8AddonBuilder.findPackage(pkgName, packageDir);
 				if (!found) throw new RuntimeError(`binding.gyp needs the package '${pkgName}', which is not installed.`);
@@ -725,8 +732,15 @@ export class V8AddonBuilder {
 			}
 		};
 		addFiles(shimDir);
-		for (const source of settings.sources)
-			if (existsSync(source) && statSync(source).isFile()) hash.update(source).update(readFileSync(source));
+		for (const source of settings.sources) {
+			let content: Buffer;
+			try {
+				content = readFileSync(source);
+			} catch {
+				continue; // missing, or not a regular file
+			}
+			hash.update(source).update(content);
+		}
 		hash.update(
 			JSON.stringify([settings.defines, settings.cflags, settings.cflagsCc, settings.libraries, settings.dependencies])
 		);

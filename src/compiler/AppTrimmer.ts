@@ -68,7 +68,7 @@ const LITERAL_ARG = /\s*(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
 const RESOLVE_CALL = /\brequire\s*\.\s*resolve\s*\(\s*(?:(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*[,)])?/g;
 /** `import x from "y"` / `export * from "y"` / `import "y"`, for a file the build could not convert. */
 const STATIC_IMPORT =
-	/(?:^|[\n;}])\s*(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])([^'"\n]+)\1|(?:^|[\n;])\s*import\s*(['"])([^'"\n]+)\3/g;
+	/(?:^|[\n;}])[ \t]*(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])([^'"\n]+)\1|(?:^|[\n;])[ \t]*import\s*(['"])([^'"\n]+)\3/g;
 /** `require` handed around as a value, or a loader built from it: the names it loads cannot be read. */
 const OPAQUE_LOADER =
 	/\bcreateRequire\b|\bmodule\s*\.\s*require\b|\brequire\s*\.\s*main\s*\.\s*require\b|[=,(:?]\s*require\s*[,;)}\n]|\bprocess\s*\.\s*dlopen\b/;
@@ -428,7 +428,7 @@ export class AppTrimmer {
 		for (const path of byPath.keys()) if (!packageRootOf(path)) reach(path);
 
 		const literal = LITERAL_ARG;
-		const methodBody = /\s*\)?\s*\{/y;
+		const methodBody = /\s*(?:\)\s*)?\{/y;
 		for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
 			const code = text(file);
 			const fromDir = posix.dirname(file) === "." ? "" : posix.dirname(file);

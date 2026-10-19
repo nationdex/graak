@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative } from "node:path";
 import { RuntimeError, TARGET_METADATA_MAP, type TargetDevice } from "../structures";
@@ -248,7 +248,13 @@ export class NativeAddonCompiler {
 		const hash = createHash("sha256");
 		hash.update(target);
 		for (const source of settings.sources) {
-			if (existsSync(source) && statSync(source).isFile()) hash.update(source).update(readFileSync(source));
+			let content: Buffer;
+			try {
+				content = readFileSync(source);
+			} catch {
+				continue; // missing, or not a regular file
+			}
+			hash.update(source).update(content);
 		}
 		hash.update(
 			JSON.stringify([settings.defines, settings.cflags, settings.cflagsCc, settings.libraries, settings.dependencies])

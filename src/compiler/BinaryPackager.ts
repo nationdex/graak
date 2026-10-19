@@ -1,14 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, posix, resolve } from "node:path";
 import { FORGEDB_DRIVERS, PURE_JS_FORGEDB_DRIVERS } from "../integrations/ForgeDBIntegration";
@@ -25,6 +16,7 @@ import {
 } from "../structures";
 import { AppTrimmer } from "./AppTrimmer";
 import { Archive } from "./Archive";
+import { writeFileAtomic } from "./AtomicWrite";
 import { BinaryInspector } from "./BinaryInspector";
 import { BUN_TRANSPILABLE_EXTENSIONS, BunTranspiler } from "./BunTranspiler";
 import { LEGACY_ASSET_DIR, LegacyRuntimeAssets } from "./LegacyRuntimeAssets";
@@ -754,10 +746,8 @@ export class BinaryPackager {
 			if (!patch.changes.length) continue;
 			const digest = createHash("sha256").update(patch.buffer).digest("hex").slice(0, 24);
 			const patched = join(cache, `${digest}-${basename(entry.path)}`);
-			if (!existsSync(patched)) {
-				mkdirSync(cache, { recursive: true });
-				writeFileSync(patched, patch.buffer);
-			}
+			mkdirSync(cache, { recursive: true });
+			writeFileAtomic(patched, patch.buffer);
 			entry.source = patched;
 			patchedDirs.add(posix.dirname(entry.path));
 			log(`Windows 7: ${entry.path}: ${patch.changes.join(", ")}`);

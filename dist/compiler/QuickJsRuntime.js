@@ -5,6 +5,7 @@ const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const structures_1 = require("../structures");
+const AtomicWrite_1 = require("./AtomicWrite");
 const NodeRuntime_1 = require("./NodeRuntime");
 /**
  * Obtains a [quickjs-ng](https://github.com/quickjs-ng/quickjs) engine binary for a target.
@@ -153,7 +154,7 @@ class QuickJsRuntime {
             throw new structures_1.RuntimeError(`Checksum mismatch for quickjs-ng '${entry.asset}': expected ${expected}, got ${actual}`);
         }
         (0, node_fs_1.mkdirSync)(dir, { recursive: true });
-        (0, node_fs_1.writeFileSync)(file, buffer);
+        (0, AtomicWrite_1.writeFileAtomic)(file, buffer);
         if (!entry.asset.endsWith(".exe"))
             (0, node_fs_1.chmodSync)(file, 0o755);
         return file;

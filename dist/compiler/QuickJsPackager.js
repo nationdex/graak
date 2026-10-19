@@ -9,6 +9,7 @@ const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const nativeShim_1 = require("../runtime/nativeShim");
 const structures_1 = require("../structures");
+const AtomicWrite_1 = require("./AtomicWrite");
 const NodeRuntime_1 = require("./NodeRuntime");
 const Prebuilt_1 = require("./Prebuilt");
 const SpawnOutput_1 = require("./SpawnOutput");
@@ -290,7 +291,7 @@ class QuickJsPackager {
         const prebuilt = Prebuilt_1.Prebuilt.host(repoRoot, buildTarget, sourceHash);
         if (prebuilt) {
             (0, node_fs_1.mkdirSync)(cacheDir, { recursive: true });
-            (0, node_fs_1.writeFileSync)(exe, prebuilt);
+            (0, AtomicWrite_1.writeFileAtomic)(exe, prebuilt);
             (0, node_fs_1.chmodSync)(exe, 0o755);
             (0, node_fs_1.writeFileSync)(marker, sourceHash);
             onLog(`Using the prebuilt Graak native host for '${buildTarget}'`);
