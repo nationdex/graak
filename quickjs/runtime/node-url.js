@@ -220,6 +220,15 @@ class LegacyUrl {
 
 const SLASHED = new Set(["http:", "https:", "ftp:", "gopher:", "file:", "ws:", "wss:"]);
 
+// The protocols the legacy parser never puts "//" after, as in Node.js (`hostlessProtocol` in lib/url.js).
+const HOSTLESS_PROTOCOLS = new Set(["javascript", "javascript:"]);
+
+// url.format() turns the first "%3A" of the encoded auth back into the ":" that separates user from password, as Node.js does.
+function restoreFirstColon(encoded) {
+	const at = encoded.search(/%3A/i);
+	return at === -1 ? encoded : `${encoded.slice(0, at)}:${encoded.slice(at + 3)}`;
+}
+
 export function parse(input, parseQueryString = false, slashesDenoteHost = false) {
 	if (input instanceof LegacyUrl) return input;
 	const out = new LegacyUrl();
@@ -245,7 +254,7 @@ export function parse(input, parseQueryString = false, slashesDenoteHost = false
 	const lowerProto = out.protocol ?? "";
 	if (slashesDenoteHost || proto || /^\/\/[^/@]+@[^/@]+/.test(rest)) {
 		const slashes = rest.startsWith("//");
-		const hostless = lowerProto === "javascript:";
+		const hostless = HOSTLESS_PROTOCOLS.has(lowerProto);
 		if (slashes && !hostless) {
 			rest = rest.slice(2);
 			out.slashes = true;
@@ -315,7 +324,7 @@ export function format(input, options) {
 		return at < 0 ? href : href.slice(0, at) + hostname + href.slice(at + u.hostname.length);
 	}
 	if (typeof input === "string") return format(parse(input));
-	let auth = input.auth ? `${encodeURIComponent(input.auth).replace(/%3A/i, ":")}@` : "";
+	let auth = input.auth ? `${restoreFirstColon(encodeURIComponent(input.auth))}@` : "";
 	let protocol = input.protocol ?? "";
 	if (protocol && !protocol.endsWith(":")) protocol += ":";
 	let host = "";

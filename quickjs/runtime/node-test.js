@@ -1835,16 +1835,11 @@ function createTestModule(builtins, globalObject, moduleMockHooks) {
 	const kFrameStart = /^ {4}at /;
 	const kLineBreak = /\n|\r\n/;
 
+	// Node.js escapes control characters first and backslashes after, so a tab comes out as `\\t` (two backslashes and a t).
+	// Spelled out per character here, in one pass, to give exactly that output without escaping the escapes twice.
+	const kTapEscapes = { "\b": "\\\\b", "\f": "\\\\f", "\t": "\\\\t", "\n": "\\\\n", "\r": "\\\\r", "\v": "\\\\v", "\\": "\\\\", "#": "\\#" };
 	function tapEscape(input) {
-		return input
-			.replaceAll("\b", "\\b")
-			.replaceAll("\f", "\\f")
-			.replaceAll("\t", "\\t")
-			.replaceAll("\n", "\\n")
-			.replaceAll("\r", "\\r")
-			.replaceAll("\v", "\\v")
-			.replaceAll("\\", "\\\\")
-			.replaceAll("#", "\\#");
+		return input.replace(/[\b\f\t\n\r\v\\#]/g, (char) => kTapEscapes[char]);
 	}
 
 	function isAssertionLike(value) {
