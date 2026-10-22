@@ -28,7 +28,6 @@ const NEVER_LOADED_DIRS = new Set([
  * argument decides whether the graph can follow it.
  */
 const CALL = /(^|[^.\w$])(?:__)?(require|import)\s*\(/g;
-const LITERAL_ARG = /(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
 const RESOLVE_CALL = /\brequire\s*\.\s*resolve\s*\(\s*(?:(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*[,)])?/g;
 /** `import x from "y"` / `export * from "y"` / `import "y"`, for a file the build could not convert. */
 const STATIC_IMPORT = /(?:^|[\n;}])[ \t]*(?:import|export)\b[^'"`;]*?\bfrom\s*(['"])([^'"\n]+)\1|(?:^|[\n;])[ \t]*import\s*(['"])([^'"\n]+)\3/g;
@@ -38,6 +37,34 @@ function skipSpaces(code, i) {
     while (at < code.length && /\s/.test(code[at]))
         at++;
     return at;
+}
+/**
+ * The text between the quotes of a string literal at `pos` that is followed by `)`, or null: the argument of a
+ * `require("x")` call. No `$` (a template substitution) and no line break may appear inside it. Scanned by index,
+ * because a regex for it backtracks over long runs of spaces and escaped quotes.
+ */
+function literalArg(code, pos) {
+    const quote = code[pos];
+    if (quote !== '"' && quote !== "'" && quote !== "`")
+        return null;
+    let at = pos + 1;
+    for (; at < code.length; at++) {
+        const c = code[at];
+        if (c === quote)
+            break;
+        if (c === "\\") {
+            const next = code[at + 1];
+            if (next === undefined || next === "\n" || next === "\r" || next === "\u2028" || next === "\u2029")
+                return null;
+            at++;
+        }
+        else if (c === "\n" || c === "$") {
+            return null;
+        }
+    }
+    if (at >= code.length)
+        return null;
+    return code[skipSpaces(code, at + 1)] === ")" ? code.slice(pos + 1, at) : null;
 }
 /** Whether a `{` follows `pos` after optional spaces and an optional `)`: the shape of a method declaration. */
 function opensMethodBody(code, pos) {
@@ -456,7 +483,6 @@ class AppTrimmer {
         for (const path of byPath.keys())
             if (!packageRootOf(path))
                 reach(path);
-        const literal = LITERAL_ARG;
         for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
             const code = text(file);
             const fromDir = node_path_1.posix.dirname(file) === "." ? "" : node_path_1.posix.dirname(file);
@@ -465,19 +491,18 @@ class AppTrimmer {
             for (const match of code.matchAll(CALL)) {
                 const after = (match.index ?? 0) + match[0].length;
                 // The spaces before the quote are skipped by index: a leading \s* in the sticky regex backtracks over them.
-                literal.lastIndex = skipSpaces(code, after);
-                const arg = literal.exec(code);
-                if (!arg) {
+                const specifier = literalArg(code, skipSpaces(code, after));
+                if (specifier === null) {
                     // `import(` also declares a method named import; a require() of anything but a literal is certain.
                     if (match[2] === "require" || !opensMethodBody(code, after))
                         dynamic = true;
                     continue;
                 }
-                const found = resolve(arg[2], fromDir);
+                const found = resolve(specifier, fromDir);
                 if (found)
                     reach(found);
                 else
-                    touchNamed(arg[2], fromDir);
+                    touchNamed(specifier, fromDir);
             }
             for (const match of code.matchAll(STATIC_IMPORT)) {
                 const specifier = match[2] ?? match[4];
