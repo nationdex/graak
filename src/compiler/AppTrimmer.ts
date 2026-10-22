@@ -64,7 +64,7 @@ const NEVER_LOADED_DIRS = new Set([
  * argument decides whether the graph can follow it.
  */
 const CALL = /(^|[^.\w$])(?:__)?(require|import)\s*\(/g;
-const LITERAL_ARG = /\s*(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
+const LITERAL_ARG = /(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
 const RESOLVE_CALL = /\brequire\s*\.\s*resolve\s*\(\s*(?:(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*[,)])?/g;
 /** `import x from "y"` / `export * from "y"` / `import "y"`, for a file the build could not convert. */
 const STATIC_IMPORT =
@@ -449,7 +449,8 @@ export class AppTrimmer {
 			let dynamic = OPAQUE_LOADER.test(code);
 			for (const match of code.matchAll(CALL)) {
 				const after = (match.index ?? 0) + match[0].length;
-				literal.lastIndex = after;
+				// The spaces before the quote are skipped by index: a leading \s* in the sticky regex backtracks over them.
+				literal.lastIndex = skipSpaces(code, after);
 				const arg = literal.exec(code);
 				if (!arg) {
 					// `import(` also declares a method named import; a require() of anything but a literal is certain.

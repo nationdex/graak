@@ -57,6 +57,8 @@
  * after that (release()) it keeps FG_SEA_BUDGET, a few blocks for modules required later.
  */
 #define FG_SEA_CACHE 64
+/* No real program has more blocks or files than this; a larger count in the index is a corrupt or hostile payload. */
+#define FG_SEA_MAX_COUNT ((uint32_t) 1 << 22)
 #define FG_SEA_START_BUDGET ((size_t) 64 << 20)
 #define FG_SEA_BUDGET ((size_t) 4 << 20)
 
@@ -933,7 +935,8 @@ static int fg_sea_load_index(char *main, size_t main_cap)
     pos += mlen;
 
     /* A block takes 21 index bytes and an entry at least 19 (2 length, 16 fixed, 1 path byte): bound both counts first. */
-    if (sea.nblocks > index_len / 21 || sea.nentries > index_len / 19) {
+    if (sea.nblocks > FG_SEA_MAX_COUNT || sea.nentries > FG_SEA_MAX_COUNT || sea.nblocks > index_len / 21 ||
+        sea.nentries > index_len / 19) {
         return -1;
     }
     sea.blocks = (fg_sea_block *) calloc(sea.nblocks ? sea.nblocks : 1, sizeof(fg_sea_block));
