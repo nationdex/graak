@@ -193,11 +193,11 @@ attempt("generatePrime add too big", () => crypto.generatePrimeSync(16, { add: 2
 attempt("generatePrime rem not below add", () => crypto.generatePrimeSync(48, { add: 10n, rem: 10n }));
 
 /* ---- key generation */
-const gen = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicExponent: 3 });
+const gen = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 3 });
 line("gen rsa", [gen.publicKey.type, gen.privateKey.asymmetricKeyDetails]);
-const genPem = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+const genPem = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
 line("gen rsa pem", [genPem.publicKey.split("\n")[0], genPem.privateKey.split("\n")[0], crypto.createPublicKey(genPem.privateKey).equals(crypto.createPublicKey(genPem.publicKey))]);
-const genDer = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicKeyEncoding: { type: "pkcs1", format: "der" }, privateKeyEncoding: { type: "pkcs1", format: "der" } });
+const genDer = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "pkcs1", format: "der" }, privateKeyEncoding: { type: "pkcs1", format: "der" } });
 line("gen rsa der", [Buffer.isBuffer(genDer.publicKey), Buffer.isBuffer(genDer.privateKey), genDer.privateKey[0]]);
 const genEc = crypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });
 line("gen ec", [genEc.privateKey.asymmetricKeyDetails, crypto.verify("sha256", DATA, genEc.publicKey, crypto.sign("sha256", DATA, genEc.privateKey))]);

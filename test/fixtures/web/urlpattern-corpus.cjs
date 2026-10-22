@@ -7,7 +7,10 @@ const attempt = (label, fn) => {
 		line(label, ["throws", err.constructor.name]);
 	}
 };
-const props = (p) => ({ protocol: p.protocol, username: p.username, password: p.password, hostname: p.hostname, port: p.port, pathname: p.pathname, search: p.search, hash: p.hash, hasRegExpGroups: p.hasRegExpGroups });
+// Credentials are compared, not shown: the output carries a digest of the password component, so a difference still fails
+// the comparison without any password (even a made-up one) being written to the log.
+const digest = (value) => require("crypto").createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+const props = (p) => ({ protocol: p.protocol, username: p.username, password: digest(p.password), hostname: p.hostname, port: p.port, pathname: p.pathname, search: p.search, hash: p.hash, hasRegExpGroups: p.hasRegExpGroups });
 
 line("global", [typeof URLPattern, URLPattern.name, URLPattern.length, Object.prototype.toString.call(new URLPattern({}))]);
 

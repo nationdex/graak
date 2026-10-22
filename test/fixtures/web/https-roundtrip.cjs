@@ -8,6 +8,9 @@ const options = {
 	key: fs.readFileSync(path.join(__dirname, "test-key.pem")),
 	cert: fs.readFileSync(path.join(__dirname, "test-cert.pem")),
 };
+// The clients trust this one certificate and check it against the name it was issued for (CN=localhost), so every handshake
+// here is verified even though the connection goes to 127.0.0.1.
+const CA = options.cert;
 const out = [];
 const log = (...a) => out.push(a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "));
 
@@ -24,7 +27,7 @@ server.listen(0, "127.0.0.1", async () => {
 	const port = server.address().port;
 	const get = (opts, body) =>
 		new Promise((resolve, reject) => {
-			const req = https.request({ host: "127.0.0.1", port, rejectUnauthorized: false, ...opts }, (res) => {
+			const req = https.request({ host: "127.0.0.1", port, ca: CA, servername: "localhost", ...opts }, (res) => {
 				const chunks = [];
 				res.on("data", (c) => chunks.push(c));
 				res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
@@ -39,13 +42,13 @@ server.listen(0, "127.0.0.1", async () => {
 		const r = await get({ path: "/big", method: "POST" }, big);
 		log("big", JSON.parse(r.body).body.length);
 		try {
-			await get({ path: "/", rejectUnauthorized: true });
+			await get({ path: "/", ca: undefined });
 		} catch (e) {
 			log("untrusted certificate rejected", Boolean(e.code || e.message));
 		}
 		// raw TLS socket
 		await new Promise((resolve) => {
-			const socket = tls.connect({ host: "127.0.0.1", port, rejectUnauthorized: false }, () => {
+			const socket = tls.connect({ host: "127.0.0.1", port, ca: CA, servername: "localhost" }, () => {
 				socket.write("GET /raw HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
 			});
 			const chunks = [];

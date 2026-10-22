@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { BinaryPackager, TargetDevice } from "../dist/index.js";
@@ -14,7 +14,9 @@ import { BinaryPackager, TargetDevice } from "../dist/index.js";
  * The packages are large (SurrealDB's addon alone is 150 MB), so they are installed once into a cache directory
  * (GRAAK_DB_PACKAGES to reuse one) and these tests skip when npm cannot fetch them.
  */
-const cache = process.env.GRAAK_DB_PACKAGES ?? join(tmpdir(), "graak-db-packages");
+// Native code loaded from here: a per-user directory, not a fixed name another user could have created in the shared temp dir.
+const cache =
+	process.env.GRAAK_DB_PACKAGES ?? join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "graak-test-packages");
 const HAS_GLIBC =
 	process.platform === "linux" && process.arch === "x64" && existsSync("/lib/x86_64-linux-gnu/libc.so.6");
 

@@ -1,3 +1,6 @@
+// Credentials are compared, not shown: the output carries a digest of the password component, so a difference still fails
+// the comparison without any password (even a made-up one) being written to the log.
+const digest = (value) => require("crypto").createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
 const cases = [
 	["https://user:pa%20ss@Example.COM:8080/a/./b/../c?x=1&y=2#frag"],
 	["http://example.com:80/"], ["https://example.com:443/x"], ["http://example.com:8080"], ["HTTP://EXAMPLE.com"],
@@ -16,7 +19,7 @@ const out = [];
 for (const [input, base] of cases) {
 	try {
 		const u = base === undefined ? new URL(input) : new URL(input, base);
-		out.push([input, base, u.href, u.origin, u.protocol, u.username, u.password, u.host, u.hostname, u.port, u.pathname, u.search, u.hash]);
+		out.push([input, base, u.href, u.origin, u.protocol, u.username, digest(u.password), u.host, u.hostname, u.port, u.pathname, u.search, u.hash]);
 	} catch (e) { out.push([input, base, "THROWS", e.name, e.code]); }
 }
 for (const line of out) console.log(JSON.stringify(line));

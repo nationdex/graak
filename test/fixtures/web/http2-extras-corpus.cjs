@@ -20,6 +20,9 @@ const attempt = (label, fn) => {
 };
 
 (async () => {
+	// A private directory of its own, not fixed names in the shared temp dir.
+	const fdDir = fs.mkdtempSync(path.join(os.tmpdir(), "graak-h2-"));
+	const fdFile = path.join(fdDir, "fd.txt");
 	const server = http2.createSecureServer({ key: KEY, cert: CERT });
 	const sessions = [];
 	const seen = {};
@@ -31,17 +34,17 @@ const attempt = (label, fn) => {
 			stream.respond({ ":status": 200 });
 			stream.end("p");
 		} else if (url === "/fd") {
-			const fd = fs.openSync(path.join(os.tmpdir(), "graak-h2-fd.txt"), "r");
+			const fd = fs.openSync(fdFile, "r");
 			stream.respondWithFD(fd, { "content-type": "text/plain" }, { offset: 2, length: 5 });
 			stream.on("close", () => fs.closeSync(fd));
 		} else if (url === "/fd-all") {
-			const fd = fs.openSync(path.join(os.tmpdir(), "graak-h2-fd.txt"), "r");
+			const fd = fs.openSync(fdFile, "r");
 			stream.respondWithFD(fd, { "content-type": "text/plain" });
 			stream.on("close", () => fs.closeSync(fd));
 		} else if (url === "/file") {
-			stream.respondWithFile(path.join(os.tmpdir(), "graak-h2-fd.txt"), { "content-type": "text/plain" });
+			stream.respondWithFile(fdFile, { "content-type": "text/plain" });
 		} else if (url === "/dir") {
-			stream.respondWithFile(os.tmpdir(), {}, { onError: (err) => { stream.respond({ ":status": 500 }); stream.end(err.code); } });
+			stream.respondWithFile(fdDir, {}, { onError: (err) => { stream.respond({ ":status": 500 }); stream.end(err.code); } });
 		} else if (url === "/fifo-offset") {
 			stream.on("error", (err) => line("fifo offset error", errorInfo(err)));
 			stream.respondWithFD(0, {}, { offset: 1 });
@@ -51,7 +54,7 @@ const attempt = (label, fn) => {
 		}
 	});
 	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-	fs.writeFileSync(path.join(os.tmpdir(), "graak-h2-fd.txt"), "0123456789abcdef");
+	fs.writeFileSync(fdFile, "0123456789abcdef");
 	const client = http2.connect("https://127.0.0.1:" + server.address().port, { ca: CERT });
 	client.on("error", (err) => line("client error", errorInfo(err)));
 	await wait(client, "connect");
@@ -128,6 +131,7 @@ const attempt = (label, fn) => {
 	client.close();
 	await wait(client, "close");
 	await new Promise((resolve) => server.close(resolve));
+	fs.rmSync(fdDir, { recursive: true, force: true });
 })().catch((err) => {
 	console.log("FAILED", err && err.stack);
 	process.exit(1);

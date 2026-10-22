@@ -106,14 +106,16 @@ if (process.argv[2] === "default-stdio-child") {
 
   // ---- start / initialize / finalizeBindings lifecycle
   const stdoutFile = path.join(tmp, "stdout.txt");
-  const stdoutFd = fs.openSync(stdoutFile, "w");
+  const stdoutFd = fs.openSync(stdoutFile, "w+");
   {
     const wasi = new WASI({ version: "preview1", returnOnExit: true, stdout: stdoutFd });
     const inst = (await WebAssembly.instantiate(startModule("wasi_snapshot_preview1", 7), wasi.getImportObject())).instance;
     log("start exit", wasi.start(inst));
     log("start twice", catchCode(() => wasi.start(inst)));
+    const captured = Buffer.alloc(4096);
+    const capturedLength = fs.readSync(stdoutFd, captured, 0, captured.length, 0);
     fs.closeSync(stdoutFd);
-    log("stdout file", JSON.stringify(fs.readFileSync(stdoutFile, "utf8")));
+    log("stdout file", JSON.stringify(captured.toString("utf8", 0, capturedLength)));
   }
   {
     const wasi = new WASI({ version: "preview1" });
