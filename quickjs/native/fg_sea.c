@@ -181,9 +181,12 @@ static int fg_self_path(char *out, size_t cap, const char *argv0)
         out[n] = '\0';
         return 0;
     }
-    if (argv0 && strlen(argv0) < cap) {
-        strcpy(out, argv0);
-        return 0;
+    if (argv0) {
+        size_t len = strlen(argv0);
+        if (len < cap) {
+            memcpy(out, argv0, len + 1);
+            return 0;
+        }
     }
     return -1;
 #endif
@@ -935,12 +938,16 @@ static int fg_sea_load_index(char *main, size_t main_cap)
     pos += mlen;
 
     /* A block takes 21 index bytes and an entry at least 19 (2 length, 16 fixed, 1 path byte): bound both counts first. */
-    if (sea.nblocks > FG_SEA_MAX_COUNT || sea.nentries > FG_SEA_MAX_COUNT || sea.nblocks > index_len / 21 ||
-        sea.nentries > index_len / 19) {
-        return -1;
+    {
+        /* Checked as locals, so the bound is visible where the sizes are used. */
+        uint32_t nblocks = sea.nblocks, nentries = sea.nentries;
+        if (nblocks > FG_SEA_MAX_COUNT || nentries > FG_SEA_MAX_COUNT || nblocks > index_len / 21 ||
+            nentries > index_len / 19) {
+            return -1;
+        }
+        sea.blocks = (fg_sea_block *) calloc(nblocks ? nblocks : 1, sizeof(fg_sea_block));
+        sea.entries = (fg_sea_entry *) calloc(nentries ? nentries : 1, sizeof(fg_sea_entry));
     }
-    sea.blocks = (fg_sea_block *) calloc(sea.nblocks ? sea.nblocks : 1, sizeof(fg_sea_block));
-    sea.entries = (fg_sea_entry *) calloc(sea.nentries ? sea.nentries : 1, sizeof(fg_sea_entry));
     if (!sea.blocks || !sea.entries) {
         return -1;
     }
