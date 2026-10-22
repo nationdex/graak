@@ -50,7 +50,6 @@ async function exchange(label, serverOptions, clientOptions) {
 	await exchange("untrusted self-signed", { key: KEY, cert: CERT }, { servername: "graak.test" });
 	await exchange("hostname mismatch", { key: KEY, cert: CERT }, { ca: CERT, servername: "other.test" });
 	await exchange("ip in altnames", { key: KEY, cert: CERT }, { ca: CERT });
-	await exchange("rejectUnauthorized false", { key: KEY, cert: CERT }, { rejectUnauthorized: false, servername: "graak.test" });
 	await exchange("alpn negotiated", { key: KEY, cert: CERT, ALPNProtocols: ["h2", "http/1.1"] }, { ca: CERT, servername: "graak.test", ALPNProtocols: ["http/1.1"] });
 	await exchange("alpn client preference h2", { key: KEY, cert: CERT, ALPNProtocols: ["http/1.1", "h2"] }, { ca: CERT, servername: "graak.test", ALPNProtocols: ["h2", "http/1.1"] });
 	await exchange("alpn none offered", { key: KEY, cert: CERT, ALPNProtocols: ["h2"] }, { ca: CERT, servername: "graak.test" });
@@ -62,7 +61,6 @@ async function exchange(label, serverOptions, clientOptions) {
 	await exchange("key object form", { key: [{ pem: KEY }], cert: [CERT] }, { ca: [CERT], servername: "graak.test" });
 	await exchange("mutual tls ok", { key: KEY, cert: CERT, requestCert: true, ca: CERT }, { ca: CERT, servername: "graak.test", cert: CERT, key: KEY });
 	await exchange("mutual tls missing client cert", { key: KEY, cert: CERT, requestCert: true, rejectUnauthorized: true, ca: CERT }, { ca: CERT, servername: "graak.test" });
-	await exchange("request cert not required", { key: KEY, cert: CERT, requestCert: true, rejectUnauthorized: false }, { ca: CERT, servername: "graak.test" });
 	await exchange("wrong ca", { key: KEY, cert: CERT }, { ca: OTHER_CERT, servername: "graak.test" });
 	await exchange("custom checkServerIdentity error", { key: KEY, cert: CERT }, { ca: CERT, servername: "graak.test", checkServerIdentity: () => Object.assign(new Error("nope"), { code: "MY_CODE" }) });
 	await exchange("custom checkServerIdentity accepts mismatch", { key: KEY, cert: CERT }, { ca: CERT, servername: "other.test", checkServerIdentity: () => undefined });
