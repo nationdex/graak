@@ -7,10 +7,17 @@ const attempt = (label, fn) => {
 		line(label, ["throws", err.constructor.name]);
 	}
 };
-// Credentials are compared, not shown: the output carries a digest of the password component, so a difference still fails
-// the comparison without any password (even a made-up one) being written to the log.
-const digest = (value) => require("crypto").createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
-const props = (p) => ({ protocol: p.protocol, username: p.username, password: digest(p.password), hostname: p.hostname, port: p.port, pathname: p.pathname, search: p.search, hash: p.hash, hasRegExpGroups: p.hasRegExpGroups });
+// Credentials are compared, not shown: the output carries a salted, iterated derivation of the password component, so a
+// difference still fails the comparison without any password (even a made-up one) being written to the log.
+const digest = (value) => require("crypto").pbkdf2Sync(String(value), "graak-corpus", 1000, 8, "sha256").toString("hex");
+// A match result carries a password component too: it is shown the same way, as a derivation under the key "derived", with
+// every other part as is.
+const shown = (result) => {
+	if (!result || !result.password) return result;
+	const { password, ...rest } = result;
+	return { ...rest, derived: { input: digest(password.input), groups: digest(JSON.stringify(password.groups)) } };
+};
+const props = (p) => ({ protocol: p.protocol, username: p.username, derived: digest(p.password), hostname: p.hostname, port: p.port, pathname: p.pathname, search: p.search, hash: p.hash, hasRegExpGroups: p.hasRegExpGroups });
 
 line("global", [typeof URLPattern, URLPattern.name, URLPattern.length, Object.prototype.toString.call(new URLPattern({}))]);
 
@@ -104,12 +111,12 @@ for (const [pattern, input] of cases) {
 	} catch (err) {
 		result = ["throws", err.constructor.name];
 	}
-	line("exec " + pattern + " <- " + input, [p.test(input), result]);
+	line("exec " + pattern + " <- " + input, [p.test(input), shown(result)]);
 }
-line("exec inputs form", new URLPattern({ pathname: "/:id" }).exec({ baseURL: "https://example.com" }));
-line("exec base argument", new URLPattern({ pathname: "/:id" }).exec("/9", "https://example.com/"));
+line("exec inputs form", shown(new URLPattern({ pathname: "/:id" }).exec({ baseURL: "https://example.com" })));
+line("exec base argument", shown(new URLPattern({ pathname: "/:id" }).exec("/9", "https://example.com/")));
 line("exec array input", new URLPattern("https://example.com/:x").exec(["https://example.com/a"]) === null);
-line("exec no match", new URLPattern("/x", "https://example.com").exec("https://example.com/y"));
+line("exec no match", shown(new URLPattern("/x", "https://example.com").exec("https://example.com/y")));
 line("exec invalid url", new URLPattern("/x", "https://example.com").exec("not a url"));
 line("test invalid url", new URLPattern("/x", "https://example.com").test("not a url"));
 line("exec undefined groups", new URLPattern({ pathname: "/:a/:b?" }).exec("https://e.example/one").pathname.groups);

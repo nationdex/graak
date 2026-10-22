@@ -26,9 +26,9 @@ const queries = ["", "?", "?a=1", "?a=1&b=2", "?a=b c", "?a=\u00e9", "?a=%", "?a
 const hashes = ["", "#", "#f", "#a b", "#\u00e9", "#%", "#{x}", "#`<>\"", "#a#b", "#?q", "#\u4e2d"];
 const relatives = ["", "x", "./x", "../x", "../../x", "/x", "//other.example/x", "?q", "#h", "?q#h", "x?y#z", "\\x", "//", "///x", "http:x", "https://abs.example/y", "file:x", "//h:1/x", "  spaced  ", "\tx", "x\ny", "..", ".", "a/../..", "%2e%2e/x", ":x", "1:x", "mailto:me@example.com"];
 const bases = ["https://base.example/dir/file?q=1#h", "http://base.example:8080/a/b/", "file:///C:/dir/file.txt", "data:text/plain,hi", "mailto:x@y", "https://user:pw@base.example/p", "blob:https://base.example/uuid", "foo://bar/baz/qux", "about:blank", "ws://base.example/socket"];
-// Credentials are compared, not shown: the output carries a digest of the password component, so a difference still fails
-// the comparison without any password (even a made-up one) being written to the log.
-const digest = (value) => require("crypto").createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+// Credentials are compared, not shown: the output carries a salted, iterated derivation of the password component, so a
+// difference still fails the comparison without any password (even a made-up one) being written to the log.
+const digest = (value) => require("crypto").pbkdf2Sync(String(value), "graak-corpus", 1000, 8, "sha256").toString("hex");
 const summary = (u) => [u.href, u.origin, u.protocol, u.username, digest(u.password), u.host, u.hostname, u.port, u.pathname, u.search, u.hash];
 const show = (fn) => {
 	try {

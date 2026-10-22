@@ -65,7 +65,7 @@ server.listen(0, "127.0.0.1", () => {
     bad.onclose = (e) => {
       say("failed close", e.code, e.wasClean);
       server.close();
-      for (const l of out) console.log(l.replace(/[\r\n]/g, (c) => (c === "\n" ? "\\n" : "\\r")));
+      for (const l of out) console.log(JSON.stringify(l));
     };
   };
 });

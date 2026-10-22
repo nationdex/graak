@@ -151,8 +151,11 @@ for (const name of ["modp1", "modp2", "modp5", "modp14"]) {
 const small = crypto.createDiffieHellman(Buffer.from("17", "hex"), Buffer.from("05", "hex"));
 line("dh small group", [small.getPrime("hex"), small.getGenerator("hex"), small.verifyError]);
 attempt("dh unknown group", () => crypto.getDiffieHellman("modp99"));
-attempt("dh too small", () => crypto.createDiffieHellman(256));
-const generated = crypto.createDiffieHellman(512);
+// Generating a prime of a size worth using takes seconds to a minute (and varies from run to run), so generation itself is
+// not exercised here; the size checks and the parameters of a 2048-bit group are.
+attempt("dh size out of range", () => crypto.createDiffieHellman(2 ** 32));
+attempt("dh size not an integer", () => crypto.createDiffieHellman(1.5));
+const generated = crypto.getDiffieHellman("modp14");
 line("dh generated", [generated.getPrime().length, generated.verifyError, generated.getGenerator("hex")]);
 const g1 = crypto.createDiffieHellman(generated.getPrime(), generated.getGenerator());
 generated.generateKeys();

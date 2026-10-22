@@ -1,6 +1,6 @@
-// Credentials are compared, not shown: the output carries a digest of the password component, so a difference still fails
-// the comparison without any password (even a made-up one) being written to the log.
-const digest = (value) => require("crypto").createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+// Credentials are compared, not shown: the output carries a salted, iterated derivation of the password component, so a
+// difference still fails the comparison without any password (even a made-up one) being written to the log.
+const digest = (value) => require("crypto").pbkdf2Sync(String(value), "graak-corpus", 1000, 8, "sha256").toString("hex");
 const cases = [
 	["https://user:pa%20ss@Example.COM:8080/a/./b/../c?x=1&y=2#frag"],
 	["http://example.com:80/"], ["https://example.com:443/x"], ["http://example.com:8080"], ["HTTP://EXAMPLE.com"],
