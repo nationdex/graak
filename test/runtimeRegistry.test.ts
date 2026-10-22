@@ -35,11 +35,8 @@ async function withFetch<T>(
 }
 
 function response(body: Buffer, ok = true): Response {
-	return {
-		ok,
-		status: ok ? 200 : 404,
-		arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
-	} as Response;
+	// A real Response, with a body that can be streamed, as fetch returns.
+	return new Response(new Uint8Array(body), { status: ok ? 200 : 404 });
 }
 
 /** Minimal PE32 header recognised by BinaryInspector. */

@@ -11,6 +11,7 @@ const node_fs_1 = require("node:fs");
 const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
 const structures_1 = require("../structures");
+const Download_1 = require("./Download");
 const NodeRuntime_1 = require("./NodeRuntime");
 const SpawnOutput_1 = require("./SpawnOutput");
 /**
@@ -383,26 +384,17 @@ class V8AddonBuilder {
         const base = checkedMirror(options.mirror ?? "https://codeload.github.com");
         const refs = [commit];
         for (const ref of refs) {
-            let response;
-            try {
-                response = await fetch(`${base}/${owner}/${name}/tar.gz/${ref}`);
-            }
-            catch {
-                continue;
-            }
-            if (!response.ok)
-                continue;
-            options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
-            const declared = Number(response.headers.get("content-length") ?? 0);
-            if (declared > MAX_SOURCE_ARCHIVE)
-                continue;
-            const bytes = Buffer.from(await response.arrayBuffer());
-            if (bytes.length > MAX_SOURCE_ARCHIVE)
-                continue;
             const work = (0, node_fs_1.mkdtempSync)((0, node_path_1.join)((0, node_os_1.tmpdir)(), "graak-v8src-"));
             try {
                 const archive = (0, node_path_1.join)(work, "source.tar.gz");
-                (0, node_fs_1.writeFileSync)(archive, bytes);
+                try {
+                    // Streamed to a private temporary file with a size limit; the commit named in the URL is the pin.
+                    await (0, Download_1.downloadToFile)(`${base}/${owner}/${name}/tar.gz/${ref}`, archive, { maxBytes: MAX_SOURCE_ARCHIVE });
+                }
+                catch {
+                    continue;
+                }
+                options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
                 (0, node_fs_1.mkdirSync)(cache, { recursive: true });
                 const extract = (0, node_child_process_1.spawnSync)("tar", ["-xzf", archive, "-C", cache, "--strip-components=1", "--no-same-owner", "--no-same-permissions"], { encoding: "utf-8" });
                 if (extract.status !== 0) {

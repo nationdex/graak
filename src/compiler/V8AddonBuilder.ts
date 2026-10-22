@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { RuntimeError, TARGET_METADATA_MAP, TargetDevice } from "../structures";
 import type { ArchiveEntry } from "./Archive";
+import { downloadToFile } from "./Download";
 import { NodeRuntime } from "./NodeRuntime";
 import { spawnOutput } from "./SpawnOutput";
 
@@ -446,22 +447,16 @@ export class V8AddonBuilder {
 		const base = checkedMirror(options.mirror ?? "https://codeload.github.com");
 		const refs = [commit];
 		for (const ref of refs) {
-			let response: Response;
-			try {
-				response = await fetch(`${base}/${owner}/${name}/tar.gz/${ref}`);
-			} catch {
-				continue;
-			}
-			if (!response.ok) continue;
-			options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
-			const declared = Number(response.headers.get("content-length") ?? 0);
-			if (declared > MAX_SOURCE_ARCHIVE) continue;
-			const bytes = Buffer.from(await response.arrayBuffer());
-			if (bytes.length > MAX_SOURCE_ARCHIVE) continue;
 			const work = mkdtempSync(join(tmpdir(), "graak-v8src-"));
 			try {
 				const archive = join(work, "source.tar.gz");
-				writeFileSync(archive, bytes);
+				try {
+					// Streamed to a private temporary file with a size limit; the commit named in the URL is the pin.
+					await downloadToFile(`${base}/${owner}/${name}/tar.gz/${ref}`, archive, { maxBytes: MAX_SOURCE_ARCHIVE });
+				} catch {
+					continue;
+				}
+				options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
 				mkdirSync(cache, { recursive: true });
 				const extract = spawnSync(
 					"tar",

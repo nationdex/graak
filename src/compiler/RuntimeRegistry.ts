@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { gunzipSync, inflateRawSync } from "node:zlib";
 import { GraakError, parseTargetDevice, RuntimeError, type TargetDevice } from "../structures";
+import { downloadToFile } from "./Download";
 import { NodeRuntime } from "./NodeRuntime";
 import { compareVersions } from "./ProjectCollector";
 
@@ -20,6 +20,8 @@ interface RegistryFile {
 }
 
 const SHA256_RE = /^[0-9a-f]{64}$/i;
+/** A community Node.js build, packed or not, is well under this. */
+const MAX_COMMUNITY_DOWNLOAD = 512 * 1024 * 1024;
 /** A registered version becomes a directory name in the cache: no separators, nothing that starts with a dot. */
 const SAFE_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 
@@ -149,25 +151,38 @@ export class RuntimeRegistry {
 		const binary = join(dir, isWindows ? "node.exe" : "node");
 		if (existsSync(binary)) return binary;
 
-		const res = await fetch(entry.url);
-		if (!res.ok) throw new RuntimeError(`Download failed (${res.status}) for ${entry.url}`);
-		const download = Buffer.from(await res.arrayBuffer());
-
-		const actual = createHash("sha256").update(download).digest("hex");
-		if (actual !== entry.sha256.toLowerCase()) {
-			throw new RuntimeError(
-				`Checksum mismatch for ${entry.url}: expected ${entry.sha256}, got ${actual}. ` +
-					"Refusing to use this binary; verify the URL and re-register it with the correct --sha256."
-			);
-		}
-
-		const content = RuntimeRegistry.extract(download, entry.url);
 		mkdirSync(dir, { recursive: true });
-		const tmp = `${binary}.${process.pid}.tmp`;
-		writeFileSync(tmp, content);
-		if (!isWindows) chmodSync(tmp, 0o755);
-		renameSync(tmp, binary);
+		const downloaded = join(dir, `download-${process.pid}`);
+		try {
+			// Streamed to disk and checked against the registered checksum as it arrives; a different file never stays.
+			await downloadToFile(entry.url, downloaded, { maxBytes: MAX_COMMUNITY_DOWNLOAD, sha256: entry.sha256 });
+		} catch (error) {
+			if (error instanceof RuntimeError && error.message.startsWith("Checksum mismatch")) {
+				throw new RuntimeError(
+					`${error.message}. Refusing to use this binary; verify the URL and re-register it with the correct --sha256.`
+				);
+			}
+			throw error;
+		}
+		try {
+			if (RuntimeRegistry.isArchive(entry.url)) {
+				const tmp = `${binary}.${process.pid}.tmp`;
+				writeFileSync(tmp, RuntimeRegistry.extract(readFileSync(downloaded), entry.url));
+				if (!isWindows) chmodSync(tmp, 0o755);
+				renameSync(tmp, binary);
+			} else {
+				if (!isWindows) chmodSync(downloaded, 0o755);
+				renameSync(downloaded, binary);
+			}
+		} finally {
+			rmSync(downloaded, { force: true });
+		}
 		return binary;
+	}
+
+	private static isArchive(url: string): boolean {
+		const lower = url.toLowerCase();
+		return lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".zip");
 	}
 
 	private static extract(download: Buffer, url: string): Buffer {

@@ -1,17 +1,19 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NodeRuntime = exports.SEA_FUSE = exports.MIN_SEA_NODE_VERSION = void 0;
-const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
 const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
 const node_zlib_1 = require("node:zlib");
 const structures_1 = require("../structures");
+const Download_1 = require("./Download");
 const ProjectCollector_1 = require("./ProjectCollector");
 /** Node.js >= 20.12 is required for SEA assets (`sea.getAsset`). */
 exports.MIN_SEA_NODE_VERSION = "20.12.0";
 exports.SEA_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 const DIST_URL = "https://nodejs.org/dist";
+/** The largest official Node.js download (the macOS and Linux tarballs are well under half of this). */
+const MAX_RUNTIME_DOWNLOAD = 512 * 1024 * 1024;
 /** A release version as nodejs.org publishes it. It becomes a directory name and a URL path, so nothing else is accepted. */
 const RELEASE_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 /** An `index.json` file key such as `linux-x64` or `win-x64-exe`: a directory name, so letters, digits and dashes only. */
@@ -120,18 +122,24 @@ class NodeRuntime {
             .find(([, file]) => file === remotePath)?.[0];
         if (!expected)
             throw new structures_1.RuntimeError(`No checksum published for ${remotePath}`);
-        const download = await NodeRuntime.fetchBuffer(`${base}/${remotePath}`);
-        const actual = (0, node_crypto_1.createHash)("sha256").update(download).digest("hex");
-        if (actual !== expected) {
-            throw new structures_1.RuntimeError(`Checksum mismatch for ${remotePath}: expected ${expected}, got ${actual}`);
-        }
-        const content = innerPath ? NodeRuntime.extractFromTarGz(download, innerPath) : download;
         (0, node_fs_1.mkdirSync)(dir, { recursive: true });
-        const tmp = `${binary}.${process.pid}.tmp`;
-        (0, node_fs_1.writeFileSync)(tmp, content);
-        if (!isWindows)
-            (0, node_fs_1.chmodSync)(tmp, 0o755);
-        (0, node_fs_1.renameSync)(tmp, binary);
+        // Streamed to disk and checked against the published checksum as it arrives; nothing unverified is ever kept.
+        const downloaded = (0, node_path_1.join)(dir, `download-${process.pid}.${innerPath ? "tar.gz" : "exe"}`);
+        await (0, Download_1.downloadToFile)(`${base}/${remotePath}`, downloaded, { maxBytes: MAX_RUNTIME_DOWNLOAD, sha256: expected });
+        try {
+            if (innerPath) {
+                const tmp = `${binary}.${process.pid}.tmp`;
+                (0, node_fs_1.writeFileSync)(tmp, NodeRuntime.extractFromTarGz((0, node_fs_1.readFileSync)(downloaded), innerPath));
+                (0, node_fs_1.chmodSync)(tmp, 0o755);
+                (0, node_fs_1.renameSync)(tmp, binary);
+            }
+            else {
+                (0, node_fs_1.renameSync)(downloaded, binary);
+            }
+        }
+        finally {
+            (0, node_fs_1.rmSync)(downloaded, { force: true });
+        }
         return binary;
     }
     static extractFromTarGz(archive, wanted) {

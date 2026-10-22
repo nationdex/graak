@@ -1,14 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RuntimeRegistry = void 0;
-const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const node_zlib_1 = require("node:zlib");
 const structures_1 = require("../structures");
+const Download_1 = require("./Download");
 const NodeRuntime_1 = require("./NodeRuntime");
 const ProjectCollector_1 = require("./ProjectCollector");
 const SHA256_RE = /^[0-9a-f]{64}$/i;
+/** A community Node.js build, packed or not, is well under this. */
+const MAX_COMMUNITY_DOWNLOAD = 512 * 1024 * 1024;
 /** A registered version becomes a directory name in the cache: no separators, nothing that starts with a dot. */
 const SAFE_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 /**
@@ -131,23 +133,40 @@ class RuntimeRegistry {
         const binary = (0, node_path_1.join)(dir, isWindows ? "node.exe" : "node");
         if ((0, node_fs_1.existsSync)(binary))
             return binary;
-        const res = await fetch(entry.url);
-        if (!res.ok)
-            throw new structures_1.RuntimeError(`Download failed (${res.status}) for ${entry.url}`);
-        const download = Buffer.from(await res.arrayBuffer());
-        const actual = (0, node_crypto_1.createHash)("sha256").update(download).digest("hex");
-        if (actual !== entry.sha256.toLowerCase()) {
-            throw new structures_1.RuntimeError(`Checksum mismatch for ${entry.url}: expected ${entry.sha256}, got ${actual}. ` +
-                "Refusing to use this binary; verify the URL and re-register it with the correct --sha256.");
-        }
-        const content = RuntimeRegistry.extract(download, entry.url);
         (0, node_fs_1.mkdirSync)(dir, { recursive: true });
-        const tmp = `${binary}.${process.pid}.tmp`;
-        (0, node_fs_1.writeFileSync)(tmp, content);
-        if (!isWindows)
-            (0, node_fs_1.chmodSync)(tmp, 0o755);
-        (0, node_fs_1.renameSync)(tmp, binary);
+        const downloaded = (0, node_path_1.join)(dir, `download-${process.pid}`);
+        try {
+            // Streamed to disk and checked against the registered checksum as it arrives; a different file never stays.
+            await (0, Download_1.downloadToFile)(entry.url, downloaded, { maxBytes: MAX_COMMUNITY_DOWNLOAD, sha256: entry.sha256 });
+        }
+        catch (error) {
+            if (error instanceof structures_1.RuntimeError && error.message.startsWith("Checksum mismatch")) {
+                throw new structures_1.RuntimeError(`${error.message}. Refusing to use this binary; verify the URL and re-register it with the correct --sha256.`);
+            }
+            throw error;
+        }
+        try {
+            if (RuntimeRegistry.isArchive(entry.url)) {
+                const tmp = `${binary}.${process.pid}.tmp`;
+                (0, node_fs_1.writeFileSync)(tmp, RuntimeRegistry.extract((0, node_fs_1.readFileSync)(downloaded), entry.url));
+                if (!isWindows)
+                    (0, node_fs_1.chmodSync)(tmp, 0o755);
+                (0, node_fs_1.renameSync)(tmp, binary);
+            }
+            else {
+                if (!isWindows)
+                    (0, node_fs_1.chmodSync)(downloaded, 0o755);
+                (0, node_fs_1.renameSync)(downloaded, binary);
+            }
+        }
+        finally {
+            (0, node_fs_1.rmSync)(downloaded, { force: true });
+        }
         return binary;
+    }
+    static isArchive(url) {
+        const lower = url.toLowerCase();
+        return lower.endsWith(".tar.gz") || lower.endsWith(".tgz") || lower.endsWith(".zip");
     }
     static extract(download, url) {
         const lower = url.toLowerCase();

@@ -35,6 +35,7 @@ export declare class RuntimeRegistry {
      * registration time — the remote file may have changed since.
      */
     static ensure(entry: CommunityRuntimeEntry): Promise<string>;
+    private static isArchive;
     private static extract;
     /** Finds the `node` (or `bin/node`) entry in a gzipped tar archive. */
     private static extractFromTarGz;

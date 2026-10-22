@@ -1,11 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuickJsRuntime = exports.QUICKJS_VISTA_ONLY_IMPORTS = exports.QUICKJS_TARGET_ASSETS = exports.QUICKJS_VERSION = void 0;
-const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const structures_1 = require("../structures");
-const AtomicWrite_1 = require("./AtomicWrite");
+const Download_1 = require("./Download");
 const NodeRuntime_1 = require("./NodeRuntime");
 /**
  * Obtains a [quickjs-ng](https://github.com/quickjs-ng/quickjs) engine binary for a target.
@@ -39,6 +38,8 @@ const NodeRuntime_1 = require("./NodeRuntime");
  */
 /** Release the pinned checksums below were taken from. */
 exports.QUICKJS_VERSION = "v0.16.2";
+/** No quickjs-ng release binary is anywhere near this large; a response that is, is not one. */
+const MAX_ENGINE_DOWNLOAD = 64 * 1024 * 1024;
 const RELEASE_URL = "https://github.com/quickjs-ng/quickjs/releases/download";
 /**
  * quickjs-ng assets that match a Graak target. Targets are absent when the release has no
@@ -144,17 +145,12 @@ class QuickJsRuntime {
         const file = (0, node_path_1.join)(dir, entry.asset);
         if ((0, node_fs_1.existsSync)(file))
             return file;
-        const res = await fetch(QuickJsRuntime.downloadUrl(entry.asset, version));
-        if (!res.ok) {
-            throw new structures_1.RuntimeError(`Download failed (${res.status}) for quickjs-ng ${version} '${entry.asset}'`);
-        }
-        const buffer = Buffer.from(await res.arrayBuffer());
-        const actual = (0, node_crypto_1.createHash)("sha256").update(buffer).digest("hex");
-        if (actual !== expected) {
-            throw new structures_1.RuntimeError(`Checksum mismatch for quickjs-ng '${entry.asset}': expected ${expected}, got ${actual}`);
-        }
         (0, node_fs_1.mkdirSync)(dir, { recursive: true });
-        (0, AtomicWrite_1.writeFileAtomic)(file, buffer);
+        // Streamed to a temporary file, checked against the pinned checksum as it arrives, and moved into place only if it matches.
+        await (0, Download_1.downloadToFile)(QuickJsRuntime.downloadUrl(entry.asset, version), file, {
+            maxBytes: MAX_ENGINE_DOWNLOAD,
+            sha256: expected,
+        });
         if (!entry.asset.endsWith(".exe"))
             (0, node_fs_1.chmodSync)(file, 0o755);
         return file;
