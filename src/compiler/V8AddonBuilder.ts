@@ -7,11 +7,12 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { RuntimeError, TARGET_METADATA_MAP, TargetDevice } from "../structures";
 import type { ArchiveEntry } from "./Archive";
 import { NodeRuntime } from "./NodeRuntime";
@@ -329,8 +330,49 @@ export interface V8BuildResult {
 }
 
 const HOST_EXE_NAME = "graak-c.exe";
-/** A GitHub owner, repository or ref as it appears in a URL path. Starts with a word character, so never "." or "..". */
+/** A GitHub owner or repository as it appears in a URL path. Starts with a word character, so never "." or "..". */
 const SAFE_SEGMENT = /^\w[\w.+-]*$/;
+/** A full commit hash. Source is fetched only by one: a tag or version can be moved to different code, a commit cannot. */
+const COMMIT_SHA = /^[0-9a-f]{40}$/;
+/** No addon's source archive is larger than this; a bigger response is not one. */
+const MAX_SOURCE_ARCHIVE = 256 * 1024 * 1024;
+
+/** The mirror must be https, or plain http on this machine (a test server); anything else would send the build over a link anyone can alter. */
+function checkedMirror(mirror: string): string {
+	let url: URL;
+	try {
+		url = new URL(mirror);
+	} catch {
+		throw new RuntimeError(`The source mirror '${mirror}' is not a URL.`);
+	}
+	const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+	if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+		throw new RuntimeError(`The source mirror must use https:// (or http:// on this machine), got '${mirror}'.`);
+	}
+	return url.href.replace(/\/$/, "");
+}
+
+/** Removes any symlink under `dir` that leads outside it. A source archive is someone else's files and gets no such link. */
+function dropEscapingLinks(dir: string): void {
+	const root = realpathSync(dir);
+	const walk = (current: string): void => {
+		for (const entry of readdirSync(current, { withFileTypes: true })) {
+			const path = join(current, entry.name);
+			if (entry.isSymbolicLink()) {
+				let target: string | null = null;
+				try {
+					target = realpathSync(path);
+				} catch {
+					// Dangling: points at nothing inside either.
+				}
+				if (target === null || (target !== root && !target.startsWith(`${root}${sep}`))) rmSync(path, { force: true });
+			} else if (entry.isDirectory()) {
+				walk(path);
+			}
+		}
+	};
+	walk(root);
+}
 
 export class V8AddonBuilder {
 	/** Whether V8 addons can be built for this target at all (needs the target's cross toolchain). */
@@ -388,14 +430,21 @@ export class V8AddonBuilder {
 		const [, owner, name] = match;
 		// Each becomes a URL path segment: no leading dot, so "." and ".." cannot climb out of the repository path.
 		if (!owner || !name || !SAFE_SEGMENT.test(owner) || !SAFE_SEGMENT.test(name)) return null;
-		const cache = join(NodeRuntime.cacheDir(), "v8-sources", `${owner}-${name}-${manifest.version}`);
+		// The commit is part of the cache key: a tree fetched for one revision is never taken for another.
+		const commit = typeof manifest.gitHead === "string" && COMMIT_SHA.test(manifest.gitHead) ? manifest.gitHead : null;
+		if (!commit) {
+			options.onLog?.(
+				`${pkg.name} ships no source and its package.json records no commit (gitHead), so there is no exact revision to ` +
+					"fetch. Graak does not build a tag or a branch it cannot pin."
+			);
+			return null;
+		}
+		const cache = join(NodeRuntime.cacheDir(), "v8-sources", `${owner}-${name}-${commit}`);
 		const found = (dir: string) => (existsSync(join(dir, "binding.gyp")) ? dir : null);
 		if (existsSync(cache)) return found(join(cache, directory));
 
-		const base = (options.mirror ?? "https://codeload.github.com").replace(/\/$/, "");
-		const refs = [manifest.gitHead, `v${manifest.version}`, manifest.version].filter(
-			(r): r is string => typeof r === "string" && SAFE_SEGMENT.test(r)
-		);
+		const base = checkedMirror(options.mirror ?? "https://codeload.github.com");
+		const refs = [commit];
 		for (const ref of refs) {
 			let response: Response;
 			try {
@@ -405,16 +454,25 @@ export class V8AddonBuilder {
 			}
 			if (!response.ok) continue;
 			options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
+			const declared = Number(response.headers.get("content-length") ?? 0);
+			if (declared > MAX_SOURCE_ARCHIVE) continue;
+			const bytes = Buffer.from(await response.arrayBuffer());
+			if (bytes.length > MAX_SOURCE_ARCHIVE) continue;
 			const work = mkdtempSync(join(tmpdir(), "graak-v8src-"));
 			try {
 				const archive = join(work, "source.tar.gz");
-				writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+				writeFileSync(archive, bytes);
 				mkdirSync(cache, { recursive: true });
-				const extract = spawnSync("tar", ["-xzf", archive, "-C", cache, "--strip-components=1"], { encoding: "utf-8" });
+				const extract = spawnSync(
+					"tar",
+					["-xzf", archive, "-C", cache, "--strip-components=1", "--no-same-owner", "--no-same-permissions"],
+					{ encoding: "utf-8" }
+				);
 				if (extract.status !== 0) {
 					rmSync(cache, { recursive: true, force: true });
 					continue;
 				}
+				dropEscapingLinks(cache);
 			} finally {
 				rmSync(work, { recursive: true, force: true });
 			}

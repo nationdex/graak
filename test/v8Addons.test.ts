@@ -191,10 +191,12 @@ test("a V8 addon that ships only its binary is rebuilt from the source in its re
 	assert.equal(spawnSync("tar", ["-czf", tarball, "-C", work, "widget-1.0.0"]).status, 0);
 	// A fresh owner per run keeps a source cached by an earlier run from satisfying this one.
 	const owner = `acme${process.pid}${Date.now()}`;
+	// Source is fetched only by the exact commit the package records.
+	const commit = "0123456789abcdef0123456789abcdef01234567";
 	const requested: string[] = [];
 	const server = createServer((req, res) => {
 		requested.push(req.url ?? "");
-		if (req.url === `/${owner}/widget/tar.gz/v1.0.0`) res.end(readFileSync(tarball));
+		if (req.url === `/${owner}/widget/tar.gz/${commit}`) res.end(readFileSync(tarball));
 		else {
 			res.statusCode = 404;
 			res.end();
@@ -215,6 +217,7 @@ test("a V8 addon that ships only its binary is rebuilt from the source in its re
 				version: "1.0.0",
 				main: "index.js",
 				repository: { type: "git", url: `git+https://github.com/${owner}/widget.git` },
+				gitHead: commit,
 			})
 		);
 		writeFileSync(join(pkg, "index.js"), 'module.exports = require("./build/Release/raw_v8.node");');
@@ -251,10 +254,69 @@ test("a V8 addon that ships only its binary is rebuilt from the source in its re
 			packageManager: "npm",
 			v8SourceMirror: `http://127.0.0.1:${port}`,
 		});
-		assert.ok(requested.includes(`/${owner}/widget/tar.gz/v1.0.0`));
+		assert.ok(requested.includes(`/${owner}/widget/tar.gz/${commit}`));
 		const run = spawnSync(result.launcherPath, [], { cwd: result.outputPath, encoding: "utf-8", timeout: 60_000 });
 		assert.equal(run.status, 0, run.stderr);
 		assert.equal(run.stdout.trim(), expected.stdout.trim());
+	} finally {
+		server.close();
+	}
+});
+
+test("source for a V8 addon is fetched only by a pinned commit, and only over a link that cannot be altered", async () => {
+	// A project holding a package that ships only its V8 binary. Nothing is compiled: each build below must stop before that.
+	const projectWith = (manifest: Record<string, unknown>) => {
+		const root = mkdtempSync(join(tmpdir(), "graak-v8pin-"));
+		const pkg = join(root, "node_modules/widget");
+		mkdirSync(join(pkg, "build/Release"), { recursive: true });
+		writeFileSync(join(root, "package.json"), JSON.stringify({ name: "bot", dependencies: { widget: "1.0.0" } }));
+		const elf = Buffer.alloc(64);
+		elf.write("\x7fELF", 0, "latin1");
+		elf[4] = 2;
+		elf[5] = 1;
+		elf.writeUInt16LE(3, 16);
+		elf.writeUInt16LE(0x3e, 18);
+		writeFileSync(
+			join(pkg, "build/Release/raw_v8.node"),
+			Buffer.concat([elf, Buffer.from("_ZN2v87Isolate10GetCurrentEv")])
+		);
+		writeFileSync(
+			join(pkg, "package.json"),
+			JSON.stringify({ name: "widget", version: "1.0.0", main: "index.js", ...manifest })
+		);
+		writeFileSync(join(pkg, "index.js"), 'module.exports = require("./build/Release/raw_v8.node");');
+		writeFileSync(join(root, "index.js"), 'require("widget");');
+		return root;
+	};
+	const repository = { type: "git", url: "git+https://github.com/acme/widget.git" };
+	const requested: string[] = [];
+	const server = createServer((req, res) => {
+		requested.push(req.url ?? "");
+		res.statusCode = 404;
+		res.end();
+	});
+	await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+	const port = (server.address() as { port: number }).port;
+	const build = (root: string, mirror: string) =>
+		BinaryPackager.compile({
+			entrypoint: join(root, "index.js"),
+			target: TargetDevice.LinuxModernX64,
+			packageManager: "npm",
+			v8SourceMirror: mirror,
+		}).then(
+			() => "built",
+			(err: Error) => err.message
+		);
+	try {
+		// A tag or a version can be moved to other code: with no commit recorded, nothing is requested at all.
+		const unpinned = await build(projectWith({ repository }), `http://127.0.0.1:${port}`);
+		assert.match(unpinned, /ships only a prebuilt addon compiled against V8/);
+		assert.deepEqual(requested, [], "no request without a pinned commit");
+
+		// A pinned commit over plain http to a host that is not this machine would send the build over an open link.
+		const pinned = projectWith({ repository, gitHead: "0123456789abcdef0123456789abcdef01234567" });
+		assert.match(await build(pinned, "http://example.invalid"), /must use https/);
+		assert.match(await build(pinned, "not a url"), /is not a URL/);
 	} finally {
 		server.close();
 	}

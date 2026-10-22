@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,6 +10,10 @@ import { compareVersions } from "./ProjectCollector";
 export const MIN_SEA_NODE_VERSION = "20.12.0";
 export const SEA_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 const DIST_URL = "https://nodejs.org/dist";
+/** A release version as nodejs.org publishes it. It becomes a directory name and a URL path, so nothing else is accepted. */
+const RELEASE_VERSION = /^\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+/** An `index.json` file key such as `linux-x64` or `win-x64-exe`: a directory name, so letters, digits and dashes only. */
+const RELEASE_FILE_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 interface DistRelease {
 	version: string;
@@ -45,22 +48,15 @@ export class NodeRuntime {
 	}
 
 	/**
-	 * Reads the Node.js version embedded in a runtime binary without executing it.
+	 * Reads the Node.js version embedded in a runtime binary. The binary is only read, never run: it may be a file the
+	 * user pointed at, or one built for another platform, and running it to ask its version is not worth either risk.
 	 */
 	public static readVersion(binaryPath: string): string | null {
 		const content = readFileSync(binaryPath).toString("latin1");
-		const match = /nodejs\.org\/download\/release\/v(\d+\.\d+\.\d+)\//.exec(content);
-		if (match) return match[1];
-		try {
-			return execFileSync(binaryPath, ["--version"], {
-				encoding: "utf-8",
-				timeout: 15_000,
-			})
-				.trim()
-				.replace(/^v/, "");
-		} catch {
-			return null;
-		}
+		const match =
+			/nodejs\.org\/download\/release\/v(\d+\.\d+\.\d+)\//.exec(content) ??
+			/node-v(\d+\.\d+\.\d+)\.tar\.gz/.exec(content);
+		return match ? match[1] : null;
 	}
 
 	/** "absent" | "ready" (fuse unflipped) | "injected" (already a SEA). */
@@ -71,6 +67,8 @@ export class NodeRuntime {
 	}
 
 	private static async fetchBuffer(url: string): Promise<Buffer> {
+		if (!url.startsWith(`${DIST_URL}/`))
+			throw new RuntimeError(`Refusing to download from outside ${DIST_URL}: ${url}`);
 		const res = await fetch(url);
 		if (!res.ok) throw new RuntimeError(`Download failed (${res.status}) for ${url}`);
 		return Buffer.from(await res.arrayBuffer());
@@ -94,6 +92,7 @@ export class NodeRuntime {
 
 		const match = index
 			.map((r) => ({ ...r, version: r.version.replace(/^v/, "") }))
+			.filter((r) => RELEASE_VERSION.test(r.version))
 			.filter((r) => r.files.includes(fileKey))
 			.filter((r) => compareVersions(r.version, floor) >= 0)
 			.filter((r) => (wanted ? r.version === wanted || r.version.startsWith(`${wanted}.`) : r.lts !== false))
@@ -113,6 +112,9 @@ export class NodeRuntime {
 	 * Downloads (once) and verifies an official Node.js runtime, returning the binary path.
 	 */
 	public static async ensureOfficial(version: string, fileKey: string): Promise<string> {
+		if (!RELEASE_VERSION.test(version) || !RELEASE_FILE_KEY.test(fileKey)) {
+			throw new RuntimeError(`Not a Node.js release version and file key: '${version}', '${fileKey}'`);
+		}
 		const isWindows = fileKey.startsWith("win-");
 		const dir = join(NodeRuntime.cacheDir(), "node", `v${version}`, fileKey);
 		const binary = join(dir, isWindows ? "node.exe" : "node");

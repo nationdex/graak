@@ -7,7 +7,8 @@ export declare class NodeRuntime {
     static hostFileKey(): string | null;
     static canRunOnHost(target: unknown): boolean;
     /**
-     * Reads the Node.js version embedded in a runtime binary without executing it.
+     * Reads the Node.js version embedded in a runtime binary. The binary is only read, never run: it may be a file the
+     * user pointed at, or one built for another platform, and running it to ask its version is not worth either risk.
      */
     static readVersion(binaryPath: string): string | null;
     /** "absent" | "ready" (fuse unflipped) | "injected" (already a SEA). */

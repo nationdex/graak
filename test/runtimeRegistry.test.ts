@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -256,4 +256,35 @@ test("BinaryPackager uses a registered community runtime for targets with no off
 			assert.ok(!result.warnings.some((w) => w.includes("No Node.js runtime bundled")));
 		}
 	);
+});
+
+test("a registry file is checked when it is read: an entry that could escape the cache or leave https is refused", () => {
+	const sha = "a".repeat(64);
+	const good = {
+		target: "linux-x86",
+		version: "20.1.0-community",
+		url: "https://example.invalid/node.tar.gz",
+		sha256: sha,
+	};
+	const readWith = (entry: Record<string, unknown>) => {
+		const root = mkdtempSync(join(tmpdir(), "graak-registry-file-"));
+		mkdirSync(join(root, ".graak"));
+		writeFileSync(join(root, ".graak", "runtimes.json"), JSON.stringify({ runtimes: [entry] }));
+		return () => RuntimeRegistry.list(root);
+	};
+	assert.equal(readWith(good)().filter((e) => e.version === "20.1.0-community").length, 1);
+	for (const bad of [
+		{ ...good, version: "../../outside" },
+		{ ...good, version: "a/b" },
+		{ ...good, version: ".hidden" },
+		{ ...good, target: "../x" },
+		{ ...good, target: "no-such-target" },
+		{ ...good, url: "http://example.invalid/node.tar.gz" },
+		{ ...good, url: "file:///etc/passwd" },
+		{ ...good, url: "not a url" },
+		{ ...good, sha256: "abc" },
+		"just a string",
+	]) {
+		assert.throws(readWith(bad as Record<string, unknown>), GraakError, JSON.stringify(bad));
+	}
 });

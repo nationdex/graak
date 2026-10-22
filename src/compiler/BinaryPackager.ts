@@ -998,7 +998,9 @@ export class BinaryPackager {
 		const version = NodeRuntime.readVersion(binary);
 		const fuse = NodeRuntime.seaFuseState(readFileSync(binary));
 		let reason: string | null = null;
-		if (!version) reason = "the runtime version could not be determined.";
+		if (!version)
+			reason =
+				"the runtime version could not be read from the binary (official Node.js builds embed it, and Graak does not run a runtime to ask).";
 		else if (compareVersions(version, MIN_SEA_NODE_VERSION) < 0) {
 			reason = `Node.js ${version} is older than ${MIN_SEA_NODE_VERSION}, which SEA assets require.`;
 		} else if (fuse !== "ready") {

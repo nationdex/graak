@@ -9,6 +9,44 @@ const structures_1 = require("../structures");
 const NodeRuntime_1 = require("./NodeRuntime");
 const ProjectCollector_1 = require("./ProjectCollector");
 const SHA256_RE = /^[0-9a-f]{64}$/i;
+/** A registered version becomes a directory name in the cache: no separators, nothing that starts with a dot. */
+const SAFE_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
+/**
+ * A manifest is data, often checked into a project by someone else, and its fields end up in a cache path and a download
+ * URL. An entry that does not look exactly like one `add()` would have written is refused, not repaired.
+ */
+function parseEntry(raw, path) {
+    const fail = (why) => {
+        throw new structures_1.GraakError(`Malformed runtime registry entry in ${path}: ${why}`);
+    };
+    if (!raw || typeof raw !== "object")
+        return fail("not an object");
+    const e = raw;
+    const target = typeof e.target === "string" ? (0, structures_1.parseTargetDevice)(e.target) : null;
+    if (!target)
+        return fail(`unknown target '${String(e.target)}'`);
+    if (typeof e.version !== "string" || !SAFE_VERSION_RE.test(e.version))
+        return fail(`unusable version '${String(e.version)}'`);
+    if (typeof e.sha256 !== "string" || !SHA256_RE.test(e.sha256))
+        return fail("sha256 is not a 64 character hex digest");
+    let url;
+    try {
+        url = new URL(String(e.url));
+    }
+    catch {
+        return fail("url is not a URL");
+    }
+    if (url.protocol !== "https:")
+        return fail("url must use https://");
+    return {
+        target,
+        version: e.version,
+        url: url.href,
+        sha256: e.sha256.toLowerCase(),
+        notes: typeof e.notes === "string" ? e.notes : undefined,
+        addedAt: typeof e.addedAt === "string" ? e.addedAt : "",
+    };
+}
 function projectManifestPath(root) {
     return (0, node_path_1.join)(root, ".graak", "runtimes.json");
 }
@@ -26,7 +64,7 @@ function readManifest(path) {
         throw new structures_1.GraakError(`Malformed runtime registry: ${path}`);
     }
     const runtimes = data?.runtimes;
-    return Array.isArray(runtimes) ? runtimes : [];
+    return Array.isArray(runtimes) ? runtimes.map((entry) => parseEntry(entry, path)) : [];
 }
 function writeManifest(path, entries) {
     (0, node_fs_1.mkdirSync)((0, node_path_1.dirname)(path), { recursive: true });
