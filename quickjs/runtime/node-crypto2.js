@@ -1184,8 +1184,16 @@ function createAsymmetric({ native, Buffer, stream, toBytes, hashName, out, conc
 	class DiffieHellman {
 		constructor(prime, primeEncoding, generator, generatorEncoding, verifyErrorOverride) {
 			if (typeof prime === "number") {
-				if (prime < 512) throw codeError(TypeError, "ERR_INVALID_ARG_VALUE", "Invalid DH parameters");
-				if (prime > 16384) throw codeError(RangeError, "ERR_OUT_OF_RANGE", `The value of "sizeOrKey" is out of range. Received ${prime}`);
+				// Node's validateInt32, then what OpenSSL says of the size: under 2 bits is "modulus too small"; from 2 up to
+				// 511, and above OpenSSL's 10000-bit limit, Node reports invalid parameters.
+				if (!Number.isInteger(prime)) {
+					throw codeError(RangeError, "ERR_OUT_OF_RANGE", `The value of "sizeOrKey" is out of range. It must be an integer. Received ${prime}`);
+				}
+				if (prime < -2147483648 || prime > 2147483647) {
+					throw codeError(RangeError, "ERR_OUT_OF_RANGE", `The value of "sizeOrKey" is out of range. It must be >= -2147483648 && <= 2147483647. Received ${prime}`);
+				}
+				if (prime < 2) throw codeError(Error, "ERR_OSSL_DH_MODULUS_TOO_SMALL", "error:0280007E:Diffie-Hellman routines::modulus too small");
+				if (prime < 512 || prime > 10000) throw codeError(TypeError, "ERR_INVALID_ARG_VALUE", "Invalid DH parameters");
 				this._prime = native.genPrime(prime, true);
 				this._generator = Uint8Array.of(typeof primeEncoding === "number" ? primeEncoding : 2);
 			} else {
