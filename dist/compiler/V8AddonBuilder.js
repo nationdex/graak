@@ -11,6 +11,7 @@ const node_fs_1 = require("node:fs");
 const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
 const structures_1 = require("../structures");
+const Download_1 = require("./Download");
 const NodeRuntime_1 = require("./NodeRuntime");
 const SpawnOutput_1 = require("./SpawnOutput");
 /**
@@ -272,8 +273,51 @@ function hasTool(tool) {
     return (0, node_child_process_1.spawnSync)("sh", ["-c", 'command -v "$1"', "sh", tool], { encoding: "utf-8" }).status === 0;
 }
 const HOST_EXE_NAME = "graak-c.exe";
-/** A GitHub owner, repository or ref as it appears in a URL path. Starts with a word character, so never "." or "..". */
+/** A GitHub owner or repository as it appears in a URL path. Starts with a word character, so never "." or "..". */
 const SAFE_SEGMENT = /^\w[\w.+-]*$/;
+/** A full commit hash. Source is fetched only by one: a tag or version can be moved to different code, a commit cannot. */
+const COMMIT_SHA = /^[0-9a-f]{40}$/;
+/** No addon's source archive is larger than this; a bigger response is not one. */
+const MAX_SOURCE_ARCHIVE = 256 * 1024 * 1024;
+/** The mirror must be https, or plain http on this machine (a test server); anything else would send the build over a link anyone can alter. */
+function checkedMirror(mirror) {
+    let url;
+    try {
+        url = new URL(mirror);
+    }
+    catch {
+        throw new structures_1.RuntimeError(`The source mirror '${mirror}' is not a URL.`);
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+        throw new structures_1.RuntimeError(`The source mirror must use https:// (or http:// on this machine), got '${mirror}'.`);
+    }
+    return url.href.replace(/\/$/, "");
+}
+/** Removes any symlink under `dir` that leads outside it. A source archive is someone else's files and gets no such link. */
+function dropEscapingLinks(dir) {
+    const root = (0, node_fs_1.realpathSync)(dir);
+    const walk = (current) => {
+        for (const entry of (0, node_fs_1.readdirSync)(current, { withFileTypes: true })) {
+            const path = (0, node_path_1.join)(current, entry.name);
+            if (entry.isSymbolicLink()) {
+                let target = null;
+                try {
+                    target = (0, node_fs_1.realpathSync)(path);
+                }
+                catch {
+                    // Dangling: points at nothing inside either.
+                }
+                if (target === null || (target !== root && !target.startsWith(`${root}${node_path_1.sep}`)))
+                    (0, node_fs_1.rmSync)(path, { force: true });
+            }
+            else if (entry.isDirectory()) {
+                walk(path);
+            }
+        }
+    };
+    walk(root);
+}
 class V8AddonBuilder {
     /** Whether V8 addons can be built for this target at all (needs the target's cross toolchain). */
     static supports(target, libc) {
@@ -326,33 +370,38 @@ class V8AddonBuilder {
         // Each becomes a URL path segment: no leading dot, so "." and ".." cannot climb out of the repository path.
         if (!owner || !name || !SAFE_SEGMENT.test(owner) || !SAFE_SEGMENT.test(name))
             return null;
-        const cache = (0, node_path_1.join)(NodeRuntime_1.NodeRuntime.cacheDir(), "v8-sources", `${owner}-${name}-${manifest.version}`);
+        // The commit is part of the cache key: a tree fetched for one revision is never taken for another.
+        const commit = typeof manifest.gitHead === "string" && COMMIT_SHA.test(manifest.gitHead) ? manifest.gitHead : null;
+        if (!commit) {
+            options.onLog?.(`${pkg.name} ships no source and its package.json records no commit (gitHead), so there is no exact revision to ` +
+                "fetch. Graak does not build a tag or a branch it cannot pin.");
+            return null;
+        }
+        const cache = (0, node_path_1.join)(NodeRuntime_1.NodeRuntime.cacheDir(), "v8-sources", `${owner}-${name}-${commit}`);
         const found = (dir) => ((0, node_fs_1.existsSync)((0, node_path_1.join)(dir, "binding.gyp")) ? dir : null);
         if ((0, node_fs_1.existsSync)(cache))
             return found((0, node_path_1.join)(cache, directory));
-        const base = (options.mirror ?? "https://codeload.github.com").replace(/\/$/, "");
-        const refs = [manifest.gitHead, `v${manifest.version}`, manifest.version].filter((r) => typeof r === "string" && SAFE_SEGMENT.test(r));
+        const base = checkedMirror(options.mirror ?? "https://codeload.github.com");
+        const refs = [commit];
         for (const ref of refs) {
-            let response;
-            try {
-                response = await fetch(`${base}/${owner}/${name}/tar.gz/${ref}`);
-            }
-            catch {
-                continue;
-            }
-            if (!response.ok)
-                continue;
-            options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
             const work = (0, node_fs_1.mkdtempSync)((0, node_path_1.join)((0, node_os_1.tmpdir)(), "graak-v8src-"));
             try {
                 const archive = (0, node_path_1.join)(work, "source.tar.gz");
-                (0, node_fs_1.writeFileSync)(archive, Buffer.from(await response.arrayBuffer()));
+                try {
+                    // Streamed to a private temporary file with a size limit; the commit named in the URL is the pin.
+                    await (0, Download_1.downloadToFile)(`${base}/${owner}/${name}/tar.gz/${ref}`, archive, { maxBytes: MAX_SOURCE_ARCHIVE });
+                }
+                catch {
+                    continue;
+                }
+                options.onLog?.(`${pkg.name} ships no source: fetching ${owner}/${name}@${ref} from its repository`);
                 (0, node_fs_1.mkdirSync)(cache, { recursive: true });
-                const extract = (0, node_child_process_1.spawnSync)("tar", ["-xzf", archive, "-C", cache, "--strip-components=1"], { encoding: "utf-8" });
+                const extract = (0, node_child_process_1.spawnSync)("tar", ["-xzf", archive, "-C", cache, "--strip-components=1", "--no-same-owner", "--no-same-permissions"], { encoding: "utf-8" });
                 if (extract.status !== 0) {
                     (0, node_fs_1.rmSync)(cache, { recursive: true, force: true });
                     continue;
                 }
+                dropEscapingLinks(cache);
             }
             finally {
                 (0, node_fs_1.rmSync)(work, { recursive: true, force: true });

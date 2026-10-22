@@ -2521,7 +2521,7 @@ function resolveTsPaths(specifier, fromDir) {
 	}
 	if (!best) return null;
 	for (const target of best.targets) {
-		const found = resolvePackage(pathModule.resolve(config.pathsBase, target.replace("*", best.captured)));
+		const found = resolvePackage(pathModule.resolve(config.pathsBase, target.replaceAll("*", () => best.captured)));
 		if (found) return { file: found };
 	}
 	return null;

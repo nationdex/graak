@@ -42,6 +42,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -57,6 +58,8 @@
  * after that (release()) it keeps FG_SEA_BUDGET, a few blocks for modules required later.
  */
 #define FG_SEA_CACHE 64
+/* No real program has more blocks or files than this; a larger count in the index is a corrupt or hostile payload. */
+#define FG_SEA_MAX_COUNT ((uint32_t) 1 << 22)
 #define FG_SEA_START_BUDGET ((size_t) 64 << 20)
 #define FG_SEA_BUDGET ((size_t) 4 << 20)
 
@@ -94,6 +97,7 @@ static struct {
     /* Where files that must be real are extracted to: decided on the first extraction. */
     char out[4096];
     int out_ready, stale;
+    int out_fd; /* POSIX: the verified extraction directory; everything is created and read relative to it */
     struct {
         int64_t block;
         unsigned char *data;
@@ -167,6 +171,53 @@ static uint32_t fg_le32(const unsigned char *p)
     return (uint32_t) p[0] | ((uint32_t) p[1] << 8) | ((uint32_t) p[2] << 16) | ((uint32_t) p[3] << 24);
 }
 
+#ifndef _WIN32
+/* Whether `path` names a regular file this process may execute. */
+static int fg_is_executable_file(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISREG(st.st_mode) && access(path, X_OK) == 0;
+}
+
+/*
+ * The real path of the program named by argv[0] when /proc/self/exe is not there. A name with a slash is a path; a bare
+ * name is looked up in PATH the way a shell did to start it, not taken to be a file in the current directory.
+ */
+static int fg_resolve_executable(const char *argv0, char *out, size_t cap)
+{
+    char candidate[4096], resolved[4096];
+    const char *path, *dir, *end;
+
+    if (strchr(argv0, '/')) {
+        if (!fg_is_executable_file(argv0) || !realpath(argv0, resolved) || strlen(resolved) >= cap) {
+            return -1;
+        }
+        memcpy(out, resolved, strlen(resolved) + 1);
+        return 0;
+    }
+    path = getenv("PATH");
+    for (dir = path; path && *dir; dir = *end ? end + 1 : end) {
+        size_t n;
+        end = strchr(dir, ':');
+        if (!end) {
+            end = dir + strlen(dir);
+        }
+        n = (size_t) (end - dir);
+        if (n == 0 || n + strlen(argv0) + 2 > sizeof(candidate)) {
+            continue; /* an empty entry would mean the current directory */
+        }
+        memcpy(candidate, dir, n);
+        candidate[n] = '/';
+        memcpy(candidate + n + 1, argv0, strlen(argv0) + 1);
+        if (fg_is_executable_file(candidate) && realpath(candidate, resolved) && strlen(resolved) < cap) {
+            memcpy(out, resolved, strlen(resolved) + 1);
+            return 0;
+        }
+    }
+    return -1;
+}
+#endif
+
 static int fg_self_path(char *out, size_t cap, const char *argv0)
 {
 #ifdef _WIN32
@@ -179,11 +230,7 @@ static int fg_self_path(char *out, size_t cap, const char *argv0)
         out[n] = '\0';
         return 0;
     }
-    if (argv0 && strlen(argv0) < cap) {
-        strcpy(out, argv0);
-        return 0;
-    }
-    return -1;
+    return argv0 ? fg_resolve_executable(argv0, out, cap) : -1;
 #endif
 }
 
@@ -220,21 +267,155 @@ static int fg_sea_pread(void *buf, size_t len, uint64_t off)
     return 0;
 }
 
+#ifdef _WIN32
 static int fg_make_dir(const char *path)
 {
-#ifdef _WIN32
     if (CreateDirectoryA(path, NULL)) {
         return 0;
     }
     return GetLastError() == ERROR_ALREADY_EXISTS ? 0 : -1;
-#else
-    if (mkdir(path, 0755) == 0) {
-        return 0;
-    }
-    return errno == EEXIST ? 0 : -1;
+}
 #endif
+
+/*
+ * Where extracted code is left, nobody else may be able to put files: a program that finds its native addons in a
+ * directory another user created would load whatever that user left there. So the directory must be a real directory
+ * owned by this user that nobody else can write to; one that is not is refused, never repaired.
+ *
+ * On POSIX the directory is opened once and checked through the descriptor itself, and every file below it is then
+ * created, read and renamed relative to that descriptor. Nothing is looked up by path again, so the directory cannot
+ * be swapped for another between the check and the use.
+ */
+#ifdef _WIN32
+static int fg_make_private_dir(const char *path)
+{
+    /* %TEMP% and the folder beside the program belong to the signed-in user; Windows has no owner bit to compare. */
+    return fg_make_dir(path);
+}
+#else
+/* Creates the directory (0700) if it is missing and returns a descriptor for it, or -1 if it is not private. */
+static int fg_open_private_dir(const char *path)
+{
+    struct stat st;
+    DIR *dir;
+    int fd;
+
+    if (mkdir(path, 0700) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    dir = opendir(path);
+    if (!dir) {
+        return -1;
+    }
+    fd = fcntl(dirfd(dir), F_DUPFD_CLOEXEC, 3);
+    closedir(dir);
+    if (fd < 0) {
+        return -1;
+    }
+    if (fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 022) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
 }
 
+/* Reads up to cap-1 bytes of `name` (a path below the directory) into out. */
+static int fg_at_read_small(int dir, const char *name, char *out, size_t cap)
+{
+    ssize_t n;
+    int fd = openat(dir, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) {
+        return -1;
+    }
+    n = read(fd, out, cap - 1);
+    close(fd);
+    if (n < 0) {
+        return -1;
+    }
+    out[n] = '\0';
+    return 0;
+}
+
+/* Writes `name` below the directory, private (0600) until the file is complete, then 0755-style for programs. */
+static int fg_at_write_file(int dir, const char *name, const unsigned char *data, size_t len, uint32_t mode)
+{
+    size_t done = 0;
+    int fd = openat(dir, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        return -1;
+    }
+    while (done < len) {
+        ssize_t n = write(fd, data + done, len - done);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            close(fd);
+            return -1;
+        }
+        done += (size_t) n;
+    }
+    if (mode & 0111) {
+        (void) fchmod(fd, (mode_t) (mode & 0777));
+    }
+    return close(fd) == 0 ? 0 : -1;
+}
+
+/* mkdir -p for every directory above the last separator of `name`, below the directory. */
+static int fg_at_make_parents(int dir, const char *name)
+{
+    char buf[4200];
+    char *p;
+    size_t n = strlen(name);
+    if (n >= sizeof(buf)) {
+        return -1;
+    }
+    memcpy(buf, name, n + 1);
+    for (p = buf + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            if (mkdirat(dir, buf, 0700) != 0 && errno != EEXIST) {
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+    return 0;
+}
+
+static int64_t fg_at_file_size(int dir, const char *name)
+{
+    struct stat st;
+    if (fstatat(dir, name, &st, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISREG(st.st_mode)) {
+        return -1;
+    }
+    return (int64_t) st.st_size;
+}
+#endif
+
+/* The first of TMPDIR, TEMP and TMP that is an absolute path without ".." in it, else the system default. */
+static const char *fg_temp_root(void)
+{
+    static const char *const names[] = {"TMPDIR", "TEMP", "TMP"};
+    size_t i, n;
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        const char *v = getenv(names[i]);
+        if (!v || !v[0]) {
+            continue;
+        }
+        n = strlen(v);
+        if (v[0] != '/' && v[0] != '\\' && !(n > 2 && v[1] == ':')) {
+            continue; /* relative: it would mean a different place for every working directory */
+        }
+        if (strstr(v, "/../") || strstr(v, "\\..\\") || (n >= 3 && strcmp(v + n - 3, "/..") == 0)) {
+            continue;
+        }
+        return v;
+    }
+    return "/tmp";
+}
+
+#ifdef _WIN32
 /* mkdir -p for everything above the last separator of `file`. */
 static int fg_make_parents(char *file)
 {
@@ -252,6 +433,7 @@ static int fg_make_parents(char *file)
     }
     return 0;
 }
+#endif
 
 /* Entries come from our own build, but a hand-edited file must still not write outside the directory. */
 static int fg_safe_path(const char *path, size_t len)
@@ -272,43 +454,23 @@ static int fg_safe_path(const char *path, size_t len)
     return 1;
 }
 
+#ifdef _WIN32
 static int fg_write_file(const char *path, const unsigned char *data, size_t len, uint32_t mode)
 {
-    FILE *f;
-#ifndef _WIN32
-    /* Created private (0600), then widened on the open file with fchmod: no path-based chmod, no world-readable window. */
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
-    if (fd < 0) {
-        return -1;
-    }
-    f = fdopen(fd, "wb");
-    if (!f) {
-        close(fd);
-        return -1;
-    }
-#else
-    f = fopen(path, "wb");
+    FILE *f = fopen(path, "wb");
+    (void) mode;
     if (!f) {
         return -1;
     }
-#endif
     if (len && fwrite(data, 1, len, f) != len) {
         fclose(f);
         return -1;
     }
-#ifndef _WIN32
-    if (mode & 0111) {
-        (void) fchmod(fileno(f), (mode_t) (mode & 0777));
-    }
-#else
-    (void) mode;
-#endif
-    if (fclose(f) != 0) {
-        return -1;
-    }
-    return 0;
+    return fclose(f) == 0 ? 0 : -1;
 }
+#endif
 
+#ifdef _WIN32
 static int fg_read_small(const char *path, char *out, size_t cap)
 {
     FILE *f = fopen(path, "rb");
@@ -321,24 +483,19 @@ static int fg_read_small(const char *path, char *out, size_t cap)
     out[n] = '\0';
     return 0;
 }
+#endif
 
+#ifdef _WIN32
 /* Size of a regular file, or -1 when there is none. */
 static int64_t fg_file_size(const char *path)
 {
-#ifdef _WIN32
     WIN32_FILE_ATTRIBUTE_DATA info;
     if (!GetFileAttributesExA(path, GetFileExInfoStandard, &info) || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
         return -1;
     }
     return ((int64_t) info.nFileSizeHigh << 32) | info.nFileSizeLow;
-#else
-    struct stat st;
-    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-        return -1;
-    }
-    return (int64_t) st.st_size;
-#endif
 }
+#endif
 
 /* ------------------------------------------------------------------------------------------ index */
 
@@ -543,6 +700,12 @@ int fg_sea_active(void)
 }
 
 /* A payload file as a malloc'd, NUL-terminated buffer, or NULL when `path` is not one. For fg_main's entry script. */
+/* Whether this executable carries a payload (the program then runs from it, never from loose files). */
+int fg_sea_is_active(void)
+{
+    return sea.active;
+}
+
 char *fg_sea_read_file(const char *path, size_t *len)
 {
     fg_sea_entry *e = NULL;
@@ -644,7 +807,6 @@ JSModuleDef *fg_sea_module_loader(JSContext *ctx, const char *name, void *opaque
  */
 static int fg_sea_out_dir(void)
 {
-    const char *tmp;
     char marker[4200], have[80];
     int attempt, i;
 
@@ -655,16 +817,18 @@ static int fg_sea_out_dir(void)
         if (attempt == 0) {
             snprintf(sea.out, sizeof(sea.out), "%s", sea.root);
         } else {
-            tmp = getenv("TMPDIR");
-            if (!tmp) tmp = getenv("TEMP");
-            if (!tmp) tmp = getenv("TMP");
-            if (!tmp) tmp = "/tmp";
-            snprintf(sea.out, sizeof(sea.out), "%s/graak-%.16s", tmp, sea.sha);
+#ifdef _WIN32
+            snprintf(sea.out, sizeof(sea.out), "%s/graak-%.16s", fg_temp_root(), sea.sha);
+#else
+            /* The user id is in the name so two users never share one directory, and each is checked to be private. */
+            snprintf(sea.out, sizeof(sea.out), "%s/graak-%lu-%.16s", fg_temp_root(), (unsigned long) geteuid(), sea.sha);
+#endif
             for (i = 0; sea.out[i]; i++) {
                 if (sea.out[i] == '\\') sea.out[i] = '/';
             }
         }
-        if (fg_make_dir(sea.out) != 0) {
+#ifdef _WIN32
+        if (fg_make_private_dir(sea.out) != 0) {
             continue;
         }
         snprintf(marker, sizeof(marker), "%s/.sea", sea.out);
@@ -678,6 +842,25 @@ static int fg_sea_out_dir(void)
             sea.out_ready = 1;
             return 0;
         }
+#else
+        sea.out_fd = fg_open_private_dir(sea.out);
+        if (sea.out_fd < 0) {
+            continue;
+        }
+        (void) marker;
+        if (fg_at_read_small(sea.out_fd, ".sea", have, sizeof(have)) == 0 && strncmp(have, sea.sha, 64) == 0) {
+            sea.stale = 0;
+            sea.out_ready = 1;
+            return 0;
+        }
+        if (fg_at_write_file(sea.out_fd, ".sea", (const unsigned char *) sea.sha, 64, 0) == 0) {
+            sea.stale = 1;
+            sea.out_ready = 1;
+            return 0;
+        }
+        close(sea.out_fd);
+        sea.out_fd = -1;
+#endif
     }
     sea.out[0] = '\0';
     return -1;
@@ -698,6 +881,7 @@ static int fg_sea_extract(const char *abs, size_t abs_len, char *real, size_t ca
         return -1;
     }
     snprintf(real, cap, "%s/%s", sea.out, rel);
+#ifdef _WIN32
     if (!sea.stale && fg_file_size(real) == (int64_t) e->size) {
         return 0;
     }
@@ -706,25 +890,37 @@ static int fg_sea_extract(const char *abs, size_t abs_len, char *real, size_t ca
         return -1;
     }
     /* Written beside and renamed over, so another copy of the program never loads half a file. */
-#ifdef _WIN32
     snprintf(part, sizeof(part), "%s.%lu.part", real, (unsigned long) GetCurrentProcessId());
-#else
-    snprintf(part, sizeof(part), "%s.%ld.part", real, (long) getpid());
-#endif
     if (fg_write_file(part, data + e->offset, e->size, e->mode) != 0) {
         remove(part);
         return -1;
     }
-#ifdef _WIN32
     if (!MoveFileExA(part, real, MOVEFILE_REPLACE_EXISTING)) {
-#else
-    if (rename(part, real) != 0) {
-#endif
         remove(part);
         /* Another running copy holds the file open (Windows will not replace a loaded DLL): that one is current. */
         return fg_file_size(real) == (int64_t) e->size ? 0 : -1;
     }
     return 0;
+#else
+    if (!sea.stale && fg_at_file_size(sea.out_fd, rel) == (int64_t) e->size) {
+        return 0;
+    }
+    data = fg_sea_block_data(e->block);
+    if (!data || fg_at_make_parents(sea.out_fd, rel) != 0) {
+        return -1;
+    }
+    /* Written beside and renamed over, so another copy of the program never loads half a file. */
+    snprintf(part, sizeof(part), "%s.%ld.part", rel, (long) getpid());
+    if (fg_at_write_file(sea.out_fd, part, data + e->offset, e->size, e->mode) != 0) {
+        unlinkat(sea.out_fd, part, 0);
+        return -1;
+    }
+    if (renameat(sea.out_fd, part, sea.out_fd, rel) != 0) {
+        unlinkat(sea.out_fd, part, 0);
+        return fg_at_file_size(sea.out_fd, rel) == (int64_t) e->size ? 0 : -1;
+    }
+    return 0;
+#endif
 }
 
 /* ------------------------------------------------------------------------------- JavaScript bindings */
@@ -933,11 +1129,16 @@ static int fg_sea_load_index(char *main, size_t main_cap)
     pos += mlen;
 
     /* A block takes 21 index bytes and an entry at least 19 (2 length, 16 fixed, 1 path byte): bound both counts first. */
-    if (sea.nblocks > index_len / 21 || sea.nentries > index_len / 19) {
-        return -1;
+    {
+        /* Checked as locals, so the bound is visible where the sizes are used. */
+        uint32_t nblocks = sea.nblocks, nentries = sea.nentries;
+        if (nblocks > FG_SEA_MAX_COUNT || nentries > FG_SEA_MAX_COUNT || nblocks > index_len / 21 ||
+            nentries > index_len / 19) {
+            return -1;
+        }
+        sea.blocks = (fg_sea_block *) calloc(nblocks ? nblocks : 1, sizeof(fg_sea_block));
+        sea.entries = (fg_sea_entry *) calloc(nentries ? nentries : 1, sizeof(fg_sea_entry));
     }
-    sea.blocks = (fg_sea_block *) calloc(sea.nblocks ? sea.nblocks : 1, sizeof(fg_sea_block));
-    sea.entries = (fg_sea_entry *) calloc(sea.nentries ? sea.nentries : 1, sizeof(fg_sea_entry));
     if (!sea.blocks || !sea.entries) {
         return -1;
     }

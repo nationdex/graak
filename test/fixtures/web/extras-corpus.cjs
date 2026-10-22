@@ -59,11 +59,12 @@ const util = require("util");
 
   // process
   say("getBuiltinModule", process.getBuiltinModule("node:path") === path, process.getBuiltinModule("nope"), typeof process.availableMemory());
-  const envFile = path.join(os.tmpdir(), `graak-env-${process.pid}`);
+  const envDir = fs.mkdtempSync(path.join(os.tmpdir(), "graak-env-"));
+  const envFile = path.join(envDir, ".env");
   fs.writeFileSync(envFile, 'GRAAK_A=1\nGRAAK_B="two words"\n# comment\nexport GRAAK_C=3 # trailing\nGRAAK_D=\'q\'\n');
   process.loadEnvFile(envFile);
   say("loadEnvFile", process.env.GRAAK_A, process.env.GRAAK_B, process.env.GRAAK_C, process.env.GRAAK_D);
-  fs.rmSync(envFile);
+  fs.rmSync(envDir, { recursive: true, force: true });
   say("process misc", typeof process.ppid, typeof process.finalization.register, process.sourceMapsEnabled);
 
   // util

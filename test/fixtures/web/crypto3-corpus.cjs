@@ -127,7 +127,7 @@ for (const [name, key] of [["x25519", F.xdh], ["x448", F.xdh448]]) {
 	line("dsa pem out", [priv.export({ type: "pkcs8", format: "pem" }) === F.dsa.priv, pub.export({ type: "spki", format: "pem" }) === F.dsa.pub]);
 	line("dsa createSign", crypto.createVerify("sha256").update(MSG).verify(F.dsa.pub, Buffer.from(F.dsa.der, "base64")));
 	attempt("dsa jwk", () => priv.export({ format: "jwk" }));
-	const small = crypto.generateKeyPairSync("dsa", { modulusLength: 1024, divisorLength: 160 });
+	const small = crypto.generateKeyPairSync("dsa", { modulusLength: 2048, divisorLength: 256 });
 	line("dsa generated", [small.privateKey.asymmetricKeyDetails, crypto.verify("sha256", MSG, small.publicKey, crypto.sign("sha256", MSG, small.privateKey))]);
 	attempt("dsa bad size", () => crypto.generateKeyPairSync("dsa", {}));
 }

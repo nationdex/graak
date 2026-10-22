@@ -15,7 +15,7 @@ import {
 	type TargetMetadata,
 } from "../structures";
 import { AppTrimmer } from "./AppTrimmer";
-import { Archive } from "./Archive";
+import { Archive, type ArchiveEntry } from "./Archive";
 import { writeFileAtomic } from "./AtomicWrite";
 import { BinaryInspector } from "./BinaryInspector";
 import { BUN_TRANSPILABLE_EXTENSIONS, BunTranspiler } from "./BunTranspiler";
@@ -214,9 +214,18 @@ export class BinaryPackager {
 				);
 			}
 			log(`Transpiling ${options.entrypoint} with 'bun build' (packages kept external)`);
-			const transpiled = BunTranspiler.transpile(entrypoint);
-			entrypoint = transpiled.entrypoint;
-			cleanupTranspiled = transpiled.cleanup;
+			try {
+				const transpiled = BunTranspiler.transpile(entrypoint);
+				entrypoint = transpiled.entrypoint;
+				cleanupTranspiled = transpiled.cleanup;
+			} catch (error) {
+				// bun build cannot emit CommonJS for a top-level await. The native host converts TypeScript itself and
+				// runs such a module as the body of an async function, so it takes the source as it is.
+				const onNativeHost = engine !== "node" && !options.nodeBinary && QuickJsPackager.supports(target);
+				const message = error instanceof Error ? error.message : String(error);
+				if (!(onNativeHost && /"await" can only be used|top-level await/i.test(message))) throw error;
+				log("Top-level await in the entrypoint: leaving it for the native host to convert");
+			}
 		}
 
 		// A Yarn Plug'n'Play project has no node_modules for ProjectCollector to walk. Rather than
@@ -344,7 +353,7 @@ export class BinaryPackager {
 				lap("Compiling native addons that shipped only source");
 				BinaryPackager.applyWin7Compat(project, target, options, warnings, log);
 				lap("Patching addons for Windows 7");
-				BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "native");
+				BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "native", project.entries);
 				if (options.trim !== false) {
 					const trimmed = AppTrimmer.trim(project.entries, {
 						target,
@@ -432,7 +441,7 @@ export class BinaryPackager {
 						"For a Node.js build, compile it first (e.g. `tsc`, or `bun build --target=node --outdir dist`) and pass the built file."
 				);
 			}
-			BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings);
+			BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "node", project.entries);
 
 			const runtime = await BinaryPackager.selectRuntime(target, meta, project.minNode, options, root, log);
 			if (meta.pinnedLegacyNode && runtime.version === meta.pinnedLegacyNode.version) {
@@ -802,12 +811,39 @@ export class BinaryPackager {
 		log(`Bundled the Universal C Runtime (${files.length} DLLs) beside ${[...dirs].join(", ")}`);
 	}
 
+	/** Whether the package at `packageDir` limits itself (package.json `os` / `cpu`) to platforms that exclude `target`. */
+	private static packageExcludesTarget(entries: ArchiveEntry[], packageDir: string, target: TargetDevice): boolean {
+		const manifest = entries.find((e) => e.path === `${packageDir}/package.json`);
+		if (!manifest) return false;
+		let json: { os?: unknown; cpu?: unknown };
+		try {
+			json = JSON.parse(
+				typeof manifest.source === "string" ? readFileSync(manifest.source, "utf-8") : manifest.source.toString("utf-8")
+			);
+		} catch {
+			return false;
+		}
+		const meta = TARGET_METADATA_MAP[target];
+		const os =
+			meta.os === "windows" || meta.os === "windows-legacy" ? "win32" : meta.os === "ios-ish" ? "linux" : meta.os;
+		const cpu = { x64: "x64", x86: "ia32", arm64: "arm64", armv7: "arm" }[meta.arch];
+		const excluded = (list: unknown, value: string): boolean => {
+			if (!Array.isArray(list) || !list.length) return false;
+			const names = list.filter((n): n is string => typeof n === "string");
+			if (names.includes(`!${value}`)) return true;
+			const allowed = names.filter((n) => !n.startsWith("!"));
+			return allowed.length > 0 && !allowed.includes(value);
+		};
+		return excluded(json.os, os) || excluded(json.cpu, cpu);
+	}
+
 	private static checkNativeAddons(
 		addons: ReturnType<typeof ProjectCollector.collect>["nativeAddons"],
 		target: TargetDevice,
 		options: BuildOptions,
 		warnings: string[],
-		host: "node" | "native" = "node"
+		host: "node" | "native" = "node",
+		entries: ArchiveEntry[] = []
 	) {
 		// Prebuilt packages often ship addons for several platforms: a package is fine
 		// as soon as one of its addons fits the target
@@ -823,6 +859,9 @@ export class BinaryPackager {
 							.slice(0, rest.startsWith("@") ? 2 : 1)
 							.join("/");
 			const key = idx === -1 ? pkgName : addon.path.slice(0, idx + 13) + pkgName;
+			// An optional platform build (`@img/sharp-win32-x64`) declares the os and cpu it is for: for any other
+			// target it is simply not wanted, which is not a mismatch to refuse the build over.
+			if (idx !== -1 && BinaryPackager.packageExcludesTarget(entries, key, target)) continue;
 			const entry = byPackage.get(key) ?? { usable: false, mismatched: [] };
 			byPackage.set(key, entry);
 
@@ -959,7 +998,9 @@ export class BinaryPackager {
 		const version = NodeRuntime.readVersion(binary);
 		const fuse = NodeRuntime.seaFuseState(readFileSync(binary));
 		let reason: string | null = null;
-		if (!version) reason = "the runtime version could not be determined.";
+		if (!version)
+			reason =
+				"the runtime version could not be read from the binary (official Node.js builds embed it, and Graak does not run a runtime to ask).";
 		else if (compareVersions(version, MIN_SEA_NODE_VERSION) < 0) {
 			reason = `Node.js ${version} is older than ${MIN_SEA_NODE_VERSION}, which SEA assets require.`;
 		} else if (fuse !== "ready") {

@@ -110,9 +110,20 @@ class BinaryPackager {
                     "Run 'bun build --target=node --outdir dist' (or tsc) first and pass the built file.");
             }
             log(`Transpiling ${options.entrypoint} with 'bun build' (packages kept external)`);
-            const transpiled = BunTranspiler_1.BunTranspiler.transpile(entrypoint);
-            entrypoint = transpiled.entrypoint;
-            cleanupTranspiled = transpiled.cleanup;
+            try {
+                const transpiled = BunTranspiler_1.BunTranspiler.transpile(entrypoint);
+                entrypoint = transpiled.entrypoint;
+                cleanupTranspiled = transpiled.cleanup;
+            }
+            catch (error) {
+                // bun build cannot emit CommonJS for a top-level await. The native host converts TypeScript itself and
+                // runs such a module as the body of an async function, so it takes the source as it is.
+                const onNativeHost = engine !== "node" && !options.nodeBinary && QuickJsPackager_1.QuickJsPackager.supports(target);
+                const message = error instanceof Error ? error.message : String(error);
+                if (!(onNativeHost && /"await" can only be used|top-level await/i.test(message)))
+                    throw error;
+                log("Top-level await in the entrypoint: leaving it for the native host to convert");
+            }
         }
         // A Yarn Plug'n'Play project has no node_modules for ProjectCollector to walk. Rather than
         // reading .pnp.cjs or the zip cache directly, Yarn itself is asked to produce a real
@@ -223,7 +234,7 @@ class BinaryPackager {
                 lap("Compiling native addons that shipped only source");
                 BinaryPackager.applyWin7Compat(project, target, options, warnings, log);
                 lap("Patching addons for Windows 7");
-                BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "native");
+                BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "native", project.entries);
                 if (options.trim !== false) {
                     const trimmed = AppTrimmer_1.AppTrimmer.trim(project.entries, {
                         target,
@@ -304,7 +315,7 @@ class BinaryPackager {
                 throw new structures_1.RuntimeError(`'${(0, node_path_1.basename)(project.entry)}' is TypeScript or JSX, which only the Graak native host converts at build time. ` +
                     "For a Node.js build, compile it first (e.g. `tsc`, or `bun build --target=node --outdir dist`) and pass the built file.");
             }
-            BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings);
+            BinaryPackager.checkNativeAddons(project.nativeAddons, target, options, warnings, "node", project.entries);
             const runtime = await BinaryPackager.selectRuntime(target, meta, project.minNode, options, root, log);
             if (meta.pinnedLegacyNode && runtime.version === meta.pinnedLegacyNode.version) {
                 warnings.push(meta.pinnedLegacyNode.warning);
@@ -628,7 +639,33 @@ class BinaryPackager {
         }
         log(`Bundled the Universal C Runtime (${files.length} DLLs) beside ${[...dirs].join(", ")}`);
     }
-    static checkNativeAddons(addons, target, options, warnings, host = "node") {
+    /** Whether the package at `packageDir` limits itself (package.json `os` / `cpu`) to platforms that exclude `target`. */
+    static packageExcludesTarget(entries, packageDir, target) {
+        const manifest = entries.find((e) => e.path === `${packageDir}/package.json`);
+        if (!manifest)
+            return false;
+        let json;
+        try {
+            json = JSON.parse(typeof manifest.source === "string" ? (0, node_fs_1.readFileSync)(manifest.source, "utf-8") : manifest.source.toString("utf-8"));
+        }
+        catch {
+            return false;
+        }
+        const meta = structures_1.TARGET_METADATA_MAP[target];
+        const os = meta.os === "windows" || meta.os === "windows-legacy" ? "win32" : meta.os === "ios-ish" ? "linux" : meta.os;
+        const cpu = { x64: "x64", x86: "ia32", arm64: "arm64", armv7: "arm" }[meta.arch];
+        const excluded = (list, value) => {
+            if (!Array.isArray(list) || !list.length)
+                return false;
+            const names = list.filter((n) => typeof n === "string");
+            if (names.includes(`!${value}`))
+                return true;
+            const allowed = names.filter((n) => !n.startsWith("!"));
+            return allowed.length > 0 && !allowed.includes(value);
+        };
+        return excluded(json.os, os) || excluded(json.cpu, cpu);
+    }
+    static checkNativeAddons(addons, target, options, warnings, host = "node", entries = []) {
         // Prebuilt packages often ship addons for several platforms: a package is fine
         // as soon as one of its addons fits the target
         const byPackage = new Map();
@@ -642,6 +679,10 @@ class BinaryPackager {
                     .slice(0, rest.startsWith("@") ? 2 : 1)
                     .join("/");
             const key = idx === -1 ? pkgName : addon.path.slice(0, idx + 13) + pkgName;
+            // An optional platform build (`@img/sharp-win32-x64`) declares the os and cpu it is for: for any other
+            // target it is simply not wanted, which is not a mismatch to refuse the build over.
+            if (idx !== -1 && BinaryPackager.packageExcludesTarget(entries, key, target))
+                continue;
             const entry = byPackage.get(key) ?? { usable: false, mismatched: [] };
             byPackage.set(key, entry);
             if (!addon.info) {
@@ -756,7 +797,8 @@ class BinaryPackager {
         const fuse = NodeRuntime_1.NodeRuntime.seaFuseState((0, node_fs_1.readFileSync)(binary));
         let reason = null;
         if (!version)
-            reason = "the runtime version could not be determined.";
+            reason =
+                "the runtime version could not be read from the binary (official Node.js builds embed it, and Graak does not run a runtime to ask).";
         else if ((0, ProjectCollector_1.compareVersions)(version, NodeRuntime_1.MIN_SEA_NODE_VERSION) < 0) {
             reason = `Node.js ${version} is older than ${NodeRuntime_1.MIN_SEA_NODE_VERSION}, which SEA assets require.`;
         }

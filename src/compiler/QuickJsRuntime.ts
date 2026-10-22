@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RuntimeError, TargetDevice } from "../structures";
-import { writeFileAtomic } from "./AtomicWrite";
+import { downloadToFile } from "./Download";
 import { NodeRuntime } from "./NodeRuntime";
 
 /**
@@ -38,6 +37,8 @@ import { NodeRuntime } from "./NodeRuntime";
 
 /** Release the pinned checksums below were taken from. */
 export const QUICKJS_VERSION = "v0.16.2";
+/** No quickjs-ng release binary is anywhere near this large; a response that is, is not one. */
+const MAX_ENGINE_DOWNLOAD = 64 * 1024 * 1024;
 
 const RELEASE_URL = "https://github.com/quickjs-ng/quickjs/releases/download";
 
@@ -170,18 +171,12 @@ export class QuickJsRuntime {
 		const file = join(dir, entry.asset);
 		if (existsSync(file)) return file;
 
-		const res = await fetch(QuickJsRuntime.downloadUrl(entry.asset, version));
-		if (!res.ok) {
-			throw new RuntimeError(`Download failed (${res.status}) for quickjs-ng ${version} '${entry.asset}'`);
-		}
-		const buffer = Buffer.from(await res.arrayBuffer());
-		const actual = createHash("sha256").update(buffer).digest("hex");
-		if (actual !== expected) {
-			throw new RuntimeError(`Checksum mismatch for quickjs-ng '${entry.asset}': expected ${expected}, got ${actual}`);
-		}
-
 		mkdirSync(dir, { recursive: true });
-		writeFileAtomic(file, buffer);
+		// Streamed to a temporary file, checked against the pinned checksum as it arrives, and moved into place only if it matches.
+		await downloadToFile(QuickJsRuntime.downloadUrl(entry.asset, version), file, {
+			maxBytes: MAX_ENGINE_DOWNLOAD,
+			sha256: expected,
+		});
 		if (!entry.asset.endsWith(".exe")) chmodSync(file, 0o755);
 		return file;
 	}

@@ -97,7 +97,22 @@ function buildTargetFor(target: TargetDevice, libc: NativeHostLibc): string | un
 	return map[target];
 }
 
-const PLATFORM_SUFFIX = /-(?:win32|linux|darwin|freebsd|openbsd|android)-.+$/;
+const PLATFORM_NAMES = ["win32", "linux", "darwin", "freebsd", "openbsd", "android"];
+
+/** `name-linux-x64` -> `name`: cut at the first `-<platform>-` that has something after it. No regex over the whole name. */
+function stripPlatformSuffix(name: string): string {
+	let cut = -1;
+	for (const platform of PLATFORM_NAMES) {
+		const marker = `-${platform}-`;
+		for (let at = name.indexOf(marker); at !== -1; at = name.indexOf(marker, at + 1)) {
+			if (at + marker.length < name.length) {
+				if (cut === -1 || at < cut) cut = at;
+				break;
+			}
+		}
+	}
+	return cut === -1 ? name : name.slice(0, cut);
+}
 
 /**
  * Maps an addon's archive path to the package a developer actually depends on. Native packages
@@ -112,7 +127,7 @@ export function addonPackageNames(addonPath: string): string[] {
 	const scoped = first.startsWith("@");
 	const scope = scoped ? first : "";
 	const raw = (scoped ? segments[at + 2] : first) ?? first;
-	const base = raw.replace(PLATFORM_SUFFIX, "");
+	const base = stripPlatformSuffix(raw);
 	if (!scoped) return [base, raw];
 	// `@lmdb/lmdb-win32-x64` is the platform half of plain `lmdb`, not of a package called `@lmdb/lmdb`.
 	const own = `${scope}/${base}`;

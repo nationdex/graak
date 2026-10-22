@@ -19,6 +19,7 @@ __exportStar(require("./Archive"), exports);
 __exportStar(require("./BinaryInspector"), exports);
 __exportStar(require("./BinaryPackager"), exports);
 __exportStar(require("./BunTranspiler"), exports);
+__exportStar(require("./Download"), exports);
 __exportStar(require("./LegacyRuntimeAssets"), exports);
 __exportStar(require("./LegacyTranspiler"), exports);
 __exportStar(require("./NativeAddonCompiler"), exports);

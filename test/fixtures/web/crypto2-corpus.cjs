@@ -151,8 +151,11 @@ for (const name of ["modp1", "modp2", "modp5", "modp14"]) {
 const small = crypto.createDiffieHellman(Buffer.from("17", "hex"), Buffer.from("05", "hex"));
 line("dh small group", [small.getPrime("hex"), small.getGenerator("hex"), small.verifyError]);
 attempt("dh unknown group", () => crypto.getDiffieHellman("modp99"));
-attempt("dh too small", () => crypto.createDiffieHellman(256));
-const generated = crypto.createDiffieHellman(512);
+// Generating a prime of a size worth using takes seconds to a minute (and varies from run to run), so generation itself is
+// not exercised here; the size checks and the parameters of a 2048-bit group are.
+attempt("dh size out of range", () => crypto.createDiffieHellman(2 ** 32));
+attempt("dh size not an integer", () => crypto.createDiffieHellman(1.5));
+const generated = crypto.getDiffieHellman("modp14");
 line("dh generated", [generated.getPrime().length, generated.verifyError, generated.getGenerator("hex")]);
 const g1 = crypto.createDiffieHellman(generated.getPrime(), generated.getGenerator());
 generated.generateKeys();
@@ -193,11 +196,11 @@ attempt("generatePrime add too big", () => crypto.generatePrimeSync(16, { add: 2
 attempt("generatePrime rem not below add", () => crypto.generatePrimeSync(48, { add: 10n, rem: 10n }));
 
 /* ---- key generation */
-const gen = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicExponent: 3 });
+const gen = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicExponent: 3 });
 line("gen rsa", [gen.publicKey.type, gen.privateKey.asymmetricKeyDetails]);
-const genPem = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+const genPem = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" }, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
 line("gen rsa pem", [genPem.publicKey.split("\n")[0], genPem.privateKey.split("\n")[0], crypto.createPublicKey(genPem.privateKey).equals(crypto.createPublicKey(genPem.publicKey))]);
-const genDer = crypto.generateKeyPairSync("rsa", { modulusLength: 1024, publicKeyEncoding: { type: "pkcs1", format: "der" }, privateKeyEncoding: { type: "pkcs1", format: "der" } });
+const genDer = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "pkcs1", format: "der" }, privateKeyEncoding: { type: "pkcs1", format: "der" } });
 line("gen rsa der", [Buffer.isBuffer(genDer.publicKey), Buffer.isBuffer(genDer.privateKey), genDer.privateKey[0]]);
 const genEc = crypto.generateKeyPairSync("ec", { namedCurve: "secp384r1" });
 line("gen ec", [genEc.privateKey.asymmetricKeyDetails, crypto.verify("sha256", DATA, genEc.publicKey, crypto.sign("sha256", DATA, genEc.privateKey))]);

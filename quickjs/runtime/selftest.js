@@ -103,8 +103,7 @@ async function main() {
 	});
 
 	await test("fs write/read/stat/readdir/unlink round-trip", () => {
-		const dir = path.join(os.tmpdir(), `fgtest-${Date.now()}`);
-		fs.mkdirSync(dir, { recursive: true });
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fgtest-"));
 		const file = path.join(dir, "sample.txt");
 		fs.writeFileSync(file, "contents");
 		assert.strictEqual(fs.readFileSync(file, "utf8"), "contents");
@@ -115,6 +114,7 @@ async function main() {
 		assert.ok(fs.readdirSync(dir).includes("sample.txt"));
 		fs.unlinkSync(file);
 		assert.ok(!fs.existsSync(file));
+		fs.rmdirSync(dir);
 	});
 
 	await test("querystring parse/stringify", () => {

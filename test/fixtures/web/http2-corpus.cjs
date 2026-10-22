@@ -465,6 +465,7 @@ async function get(client, headers, options) {
 	/* ---- allowHTTP1 and ALPN */
 	{
 		const server = http2.createSecureServer({ ...SECURE, allowHTTP1: true }, (req, res) => {
+			res.setHeader("content-type", "application/json");
 			res.end(JSON.stringify([req.httpVersion, req.method, req.url]));
 		});
 		const port = await listen(server);

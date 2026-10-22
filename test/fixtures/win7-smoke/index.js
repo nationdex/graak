@@ -30,14 +30,14 @@ const assert = (cond, message) => {
 	await check("fs write, read, stat, readdir, unlink", () => {
 		const fs = require("fs");
 		const path = require("path");
-		const dir = path.join(require("os").tmpdir(), `fg-smoke-${process.pid}`);
-		fs.mkdirSync(dir, { recursive: true });
+		const dir = fs.mkdtempSync(path.join(require("os").tmpdir(), "fg-smoke-"));
 		const file = path.join(dir, "a.txt");
 		fs.writeFileSync(file, "héllo");
 		assert(fs.readFileSync(file, "utf8") === "héllo", "read back differs");
 		assert(fs.statSync(file).isFile(), "stat");
 		assert(fs.readdirSync(dir).includes("a.txt"), "readdir");
 		fs.unlinkSync(file);
+		fs.rmdirSync(dir);
 		return dir;
 	});
 	await check("timers and promises", async () => {

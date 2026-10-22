@@ -64,7 +64,6 @@ const NEVER_LOADED_DIRS = new Set([
  * argument decides whether the graph can follow it.
  */
 const CALL = /(^|[^.\w$])(?:__)?(require|import)\s*\(/g;
-const LITERAL_ARG = /\s*(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*\)/y;
 const RESOLVE_CALL = /\brequire\s*\.\s*resolve\s*\(\s*(?:(['"`])((?:(?!\1)[^\\\n$]|\\.)*)\1\s*[,)])?/g;
 /** `import x from "y"` / `export * from "y"` / `import "y"`, for a file the build could not convert. */
 const STATIC_IMPORT =
@@ -74,6 +73,30 @@ function skipSpaces(code: string, i: number): number {
 	let at = i;
 	while (at < code.length && /\s/.test(code[at])) at++;
 	return at;
+}
+
+/**
+ * The text between the quotes of a string literal at `pos` that is followed by `)`, or null: the argument of a
+ * `require("x")` call. No `$` (a template substitution) and no line break may appear inside it. Scanned by index,
+ * because a regex for it backtracks over long runs of spaces and escaped quotes.
+ */
+function literalArg(code: string, pos: number): string | null {
+	const quote = code[pos];
+	if (quote !== '"' && quote !== "'" && quote !== "`") return null;
+	let at = pos + 1;
+	for (; at < code.length; at++) {
+		const c = code[at];
+		if (c === quote) break;
+		if (c === "\\") {
+			const next = code[at + 1];
+			if (next === undefined || next === "\n" || next === "\r" || next === "\u2028" || next === "\u2029") return null;
+			at++;
+		} else if (c === "\n" || c === "$") {
+			return null;
+		}
+	}
+	if (at >= code.length) return null;
+	return code[skipSpaces(code, at + 1)] === ")" ? code.slice(pos + 1, at) : null;
 }
 
 /** Whether a `{` follows `pos` after optional spaces and an optional `)`: the shape of a method declaration. */
@@ -441,7 +464,6 @@ export class AppTrimmer {
 		// The program's own files ship as they are, and every one of them is a starting point.
 		for (const path of byPath.keys()) if (!packageRootOf(path)) reach(path);
 
-		const literal = LITERAL_ARG;
 		for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
 			const code = text(file);
 			const fromDir = posix.dirname(file) === "." ? "" : posix.dirname(file);
@@ -449,16 +471,16 @@ export class AppTrimmer {
 			let dynamic = OPAQUE_LOADER.test(code);
 			for (const match of code.matchAll(CALL)) {
 				const after = (match.index ?? 0) + match[0].length;
-				literal.lastIndex = after;
-				const arg = literal.exec(code);
-				if (!arg) {
+				// The spaces before the quote are skipped by index: a leading \s* in the sticky regex backtracks over them.
+				const specifier = literalArg(code, skipSpaces(code, after));
+				if (specifier === null) {
 					// `import(` also declares a method named import; a require() of anything but a literal is certain.
 					if (match[2] === "require" || !opensMethodBody(code, after)) dynamic = true;
 					continue;
 				}
-				const found = resolve(arg[2], fromDir);
+				const found = resolve(specifier, fromDir);
 				if (found) reach(found);
-				else touchNamed(arg[2], fromDir);
+				else touchNamed(specifier, fromDir);
 			}
 			for (const match of code.matchAll(STATIC_IMPORT)) {
 				const specifier = match[2] ?? match[4];
