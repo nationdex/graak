@@ -12,10 +12,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 void graak_native_init(JSContext *ctx);
 int fg_sea_prepare(int *argc, char ***argv);
 char *fg_sea_read_file(const char *path, size_t *len);
+int fg_sea_is_active(void);
 JSModuleDef *fg_sea_module_loader(JSContext *ctx, const char *name, void *opaque, JSValueConst attributes);
 void graak_napi_shutdown(void);
 
@@ -28,6 +32,16 @@ static char *read_file(const char *path, size_t *len_out)
     if (!file) {
         return NULL;
     }
+#ifndef _WIN32
+    {
+        /* A script is a regular file. Checked on the open file, so it cannot be swapped for a device or a pipe in between. */
+        struct stat st;
+        if (fstat(fileno(file), &st) != 0 || !S_ISREG(st.st_mode)) {
+            fclose(file);
+            return NULL;
+        }
+    }
+#endif
     fseek(file, 0, SEEK_END);
     size = ftell(file);
     fseek(file, 0, SEEK_SET);
@@ -109,7 +123,8 @@ int main(int argc, char **argv)
     graak_native_init(ctx);
 
     source = fg_sea_read_file(argv[1], &len);
-    if (!source) {
+    if (!source && !fg_sea_is_active()) {
+        /* A packaged program runs only from its payload; loose files are for the plain host (graak-c script.js). */
         source = read_file(argv[1], &len);
     }
     if (!source) {
