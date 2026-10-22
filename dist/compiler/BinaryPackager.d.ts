@@ -142,6 +142,8 @@ export declare class BinaryPackager {
      * that needs them; without one, the build says what will happen.
      */
     private static bundleUcrt;
+    /** Whether the package at `packageDir` limits itself (package.json `os` / `cpu`) to platforms that exclude `target`. */
+    private static packageExcludesTarget;
     private static checkNativeAddons;
     private static selectRuntime;
     /**
